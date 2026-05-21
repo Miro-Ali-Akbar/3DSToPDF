@@ -1,0 +1,10 @@
+*.o
+.cache/
+build/
+
+*.3dsx
+*.elf
+*.smdh
+
+compile_commands.json
+.clangd
