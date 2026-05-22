@@ -1,0 +1,90 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+      prerelease:
+        description: "Mark as pre-release?"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends git unzip curl
+
+      - name: Install 3DS portlibs
+        run: dkp-pacman -Sy --noconfirm 3ds-dev || true
+
+      - name: Build 3dsx
+        run: make -j$(nproc)
+
+      # CIA build requires bannertool + makerom; attempt to fetch pre-built binaries.
+      - name: Download CIA tools
+        run: |
+          mkdir -p /tmp/ciatools
+          curl -sSL \
+            "https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool-ubuntu-x86_64.zip" \
+            -o /tmp/bt.zip && \
+            unzip -q /tmp/bt.zip -d /tmp/ciatools && \
+            chmod +x /tmp/ciatools/bannertool || echo "bannertool unavailable"
+          curl -sSL \
+            "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip" \
+            -o /tmp/mr.zip && \
+            unzip -q /tmp/mr.zip -d /tmp/ciatools && \
+            chmod +x /tmp/ciatools/makerom || echo "makerom unavailable"
+          echo "/tmp/ciatools" >> "$GITHUB_PATH"
+
+      - name: Build CIA (best-effort)
+        run: make cia || echo "CIA build skipped"
+
+      - name: Collect release artifacts
+        run: |
+          mkdir -p dist
+          cp *.3dsx dist/ 2>/dev/null || true
+          cp *.cia  dist/ 2>/dev/null || true
+          ls -lh dist/
+
+      - name: Create GitHub release
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+          IS_PRERELEASE: ${{ github.event.inputs.prerelease }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --title "3DS PDF Reader $RELEASE_TAG" \
+            $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
+            --notes "## 3DS PDF Reader $RELEASE_TAG
+
+          ### Installation
+          **Homebrew:** Copy \`3dsToPdf.3dsx\` to \`/3ds/3dsToPdf/\` on the SD card.
+          **CIA:** Install \`3dsToPdf.cia\` with FBI or another CIA installer.
+
+          ### Usage
+          - Put PDF files in \`/pdf/\` on the SD card root.
+          - Home menu: **A** or touch to open a PDF; **↑↓** to scroll the list.
+          - Reader: **L/R** page turn · **Y** zoom mode · **D-pad/circle pad** scroll.
+          - **START** returns to the home menu.
+
+          Built from \`$COMMIT_SHA\`." \
+            dist/*.3dsx dist/*.cia 2>/dev/null || \
+          gh release create "$RELEASE_TAG" \
+            --title "3DS PDF Reader $RELEASE_TAG" \
+            $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
+            --notes "Built from $COMMIT_SHA." \
+            dist/*.3dsx

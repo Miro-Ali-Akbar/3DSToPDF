@@ -1,0 +1,21 @@
+BasicInfo:
+  Title:    "3DS PDF Reader"
+  CompanyCode: "00"
+  ProductCode: "CTR-P-PDFF"
+  ContentType: "Application"
+  Logo:     "Nintendo"
+
+Option:
+  UseOnSD:     true
+  FreeProductCode: true
+  EnableCrypt: false
+  SDMC:        true
+
+AccessControlInfo:
+  FileSystemAccess:
+    - SdmcW
+
+SystemControlInfo:
+  RemasterVersion: 0
+  StackSize:       0x40000
+  SaveDataSize:    0x10000
