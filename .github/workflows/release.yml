@@ -28,7 +28,8 @@ jobs:
         run: |
           rm -f /etc/apt/sources.list.d/devkitpro*.list
           apt-get update -qq
-          apt-get install -y --no-install-recommends git unzip curl ca-certificates
+          apt-get install -y --no-install-recommends \
+            git unzip curl ca-certificates qrencode
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             -o /usr/share/keyrings/githubcli-archive-keyring.gpg
           chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -44,7 +45,6 @@ jobs:
       - name: Build 3dsx
         run: make -j$(nproc)
 
-      # CIA build requires bannertool + makerom; attempt to fetch pre-built binaries.
       - name: Download CIA tools
         run: |
           mkdir -p /tmp/ciatools
@@ -61,13 +61,34 @@ jobs:
           echo "/tmp/ciatools" >> "$GITHUB_PATH"
 
       - name: Build CIA (best-effort)
-        run: make cia || echo "CIA build skipped"
+        run: |
+          export APP_TITLE="3DS PDF Reader"
+          export APP_AUTHOR="Miro Ali Akbar"
+          export APP_DESC="A PDF reader for Nintendo 3DS"
+          make cia || echo "CIA build skipped"
 
-      - name: Collect release artifacts
+      - name: Collect artifacts and generate QR code
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p dist
           cp *.3dsx dist/ 2>/dev/null || true
           cp *.cia  dist/ 2>/dev/null || true
+
+          # Generate QR code pointing at the CIA download URL, if a CIA was built.
+          CIA_FILE=$(ls dist/*.cia 2>/dev/null | head -1)
+          if [ -n "$CIA_FILE" ]; then
+            CIA_NAME=$(basename "$CIA_FILE")
+            CIA_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${CIA_NAME}"
+            qrencode -s 8 -m 2 -o dist/cia_qr.png "$CIA_URL"
+            echo "CIA_NAME=$CIA_NAME" >> "$GITHUB_ENV"
+            echo "CIA_URL=$CIA_URL"   >> "$GITHUB_ENV"
+            echo "HAS_CIA=true"       >> "$GITHUB_ENV"
+          else
+            echo "HAS_CIA=false" >> "$GITHUB_ENV"
+          fi
+
           ls -lh dist/
 
       - name: Create GitHub release
@@ -76,26 +97,61 @@ jobs:
           IS_PRERELEASE: ${{ github.event.inputs.prerelease }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          HAS_CIA: ${{ env.HAS_CIA }}
+          CIA_NAME: ${{ env.CIA_NAME }}
+          CIA_URL: ${{ env.CIA_URL }}
         run: |
-          gh release create "$RELEASE_TAG" \
-            --title "3DS PDF Reader $RELEASE_TAG" \
-            $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
-            --notes "## 3DS PDF Reader $RELEASE_TAG
+          QR_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/cia_qr.png"
+
+          if [ "$HAS_CIA" = "true" ]; then
+            cat > /tmp/notes.md << NOTES
+          ## 3DS PDF Reader ${RELEASE_TAG}
 
           ### Installation
-          **Homebrew:** Copy \`3dsToPdf.3dsx\` to \`/3ds/3dsToPdf/\` on the SD card.
-          **CIA:** Install \`3dsToPdf.cia\` with FBI or another CIA installer.
 
-          ### Usage
-          - Put PDF files in \`/pdf/\` on the SD card root.
-          - Home menu: **A** or touch to open a PDF; **↑↓** to scroll the list.
-          - Reader: **L/R** page turn · **Y** zoom mode · **D-pad/circle pad** scroll.
-          - **START** returns to the home menu.
+          **Homebrew (.3dsx)**
+          Copy \`3DSToPDF.3dsx\` to \`/3ds/3DSToPDF/\` on your SD card and launch via the Homebrew Launcher.
 
-          Built from \`$COMMIT_SHA\`." \
-            dist/*.3dsx dist/*.cia 2>/dev/null || \
+          **CIA (installed title)**
+          Install \`${CIA_NAME}\` with FBI or another CIA installer.
+
+          You can also scan the QR code below directly in FBI (*Remote Install → Scan QR Code*) to download and install the CIA over Wi-Fi:
+
+          ![CIA QR Code](${QR_URL})
+
+          ### Controls
+          - **Home menu:** A or touch to open · ↑↓ to navigate · START to quit
+          - **Reader:** L/R page turn · D-pad/circle pan · Y zoom mode · START return to menu
+          - **Zoom mode:** D-pad ±zoom · X fit width · A/B exit
+
+          Built from \`${COMMIT_SHA}\`.
+          NOTES
+            EXTRA_ASSETS="dist/cia_qr.png"
+          else
+            cat > /tmp/notes.md << NOTES
+          ## 3DS PDF Reader ${RELEASE_TAG}
+
+          ### Installation
+
+          **Homebrew (.3dsx)**
+          Copy \`3DSToPDF.3dsx\` to \`/3ds/3DSToPDF/\` on your SD card and launch via the Homebrew Launcher.
+
+          *(CIA build was not available for this release.)*
+
+          ### Controls
+          - **Home menu:** A or touch to open · ↑↓ to navigate · START to quit
+          - **Reader:** L/R page turn · D-pad/circle pan · Y zoom mode · START return to menu
+          - **Zoom mode:** D-pad ±zoom · X fit width · A/B exit
+
+          Built from \`${COMMIT_SHA}\`.
+          NOTES
+            EXTRA_ASSETS=""
+          fi
+
           gh release create "$RELEASE_TAG" \
             --title "3DS PDF Reader $RELEASE_TAG" \
             $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
-            --notes "Built from $COMMIT_SHA." \
-            dist/*.3dsx
+            --notes-file /tmp/notes.md \
+            dist/*.3dsx \
+            $([ "$HAS_CIA" = "true" ] && echo "dist/*.cia dist/cia_qr.png")
