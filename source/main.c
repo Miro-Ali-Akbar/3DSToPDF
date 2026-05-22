@@ -833,7 +833,6 @@ typedef enum { STATE_HOME, STATE_READER } State;
 
 int main(int argc, char *argv[]) {
   gfxInitDefault();
-  romfsInit();
 
   ctx = fz_new_context(NULL, NULL, 16 * 1024 * 1024);
   if (!ctx)
@@ -1101,7 +1100,6 @@ int main(int argc, char *argv[]) {
 end:
   if (ctx)
     fz_drop_context(ctx);
-  romfsExit();
   gfxExit();
   return 0;
 }
