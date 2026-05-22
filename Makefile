@@ -158,11 +158,11 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-APP_TITLE    ?= 3DS PDF Reader
-APP_DESC     ?= A PDF reader for Nintendo 3DS
-APP_AUTHOR   ?= Miro Ali Akbar
-APP_VER_MAJOR ?= 1
-APP_VER_MINOR ?= 0
+APP_TITLE    := 3DS PDF Reader
+APP_DESC     := A PDF reader for Nintendo 3DS
+APP_AUTHOR   := Miro Ali Akbar
+APP_VER_MAJOR := 1
+APP_VER_MINOR := 0
 
 # cia target requires bannertool and makerom to be on PATH.
 # Install from:

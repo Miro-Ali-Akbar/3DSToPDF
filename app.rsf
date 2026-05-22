@@ -9,7 +9,6 @@ Option:
   UseOnSD:     true
   FreeProductCode: true
   EnableCrypt: false
-  SDMC:        true
 
 AccessControlInfo:
   FileSystemAccess:
