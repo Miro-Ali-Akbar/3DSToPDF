@@ -182,23 +182,11 @@ all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 # If icon.png is absent, makerom will use a blank icon.
 cia: all
 	@echo Building CIA ...
-	@[ -f icon.png ] || (echo "WARNING: icon.png not found, CIA may lack an icon." )
-	bannertool makebanner \
-		-ci "$(if $(wildcard icon.png),icon.png,$(CTRULIB)/default_icon.png)" \
-		-ca "$(if $(wildcard audio.bcwav),audio.bcwav,/dev/null)" \
-		-o "$(CURDIR)/banner.bin" 2>/dev/null || true
-	bannertool makesmdh \
-		-s "$(APP_TITLE)" \
-		-l "$(APP_TITLE) — $(APP_DESC)" \
-		-p "$(APP_AUTHOR)" \
-		-i "$(if $(wildcard icon.png),icon.png,$(CTRULIB)/default_icon.png)" \
-		-o "$(CURDIR)/icon.icn" 2>/dev/null || true
 	makerom -f cia \
 		-o "$(CURDIR)/$(TARGET).cia" \
 		-elf "$(CURDIR)/$(TARGET).elf" \
 		-rsf "$(CURDIR)/app.rsf" \
-		-banner "$(CURDIR)/banner.bin" \
-		-icon "$(CURDIR)/icon.icn" \
+		-icon "$(CURDIR)/$(TARGET).smdh" \
 		-exefslogo \
 		-target t
 	@echo CIA built: $(TARGET).cia
