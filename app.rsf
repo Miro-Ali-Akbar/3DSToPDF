@@ -17,4 +17,4 @@ AccessControlInfo:
 SystemControlInfo:
   RemasterVersion: 0
   StackSize:       0x40000
-  SaveDataSize:    0x10000
+  SaveDataSize:    0
