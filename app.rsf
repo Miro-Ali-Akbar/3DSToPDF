@@ -11,6 +11,7 @@ Option:
   EnableCrypt: false
 
 AccessControlInfo:
+  CoreVersion: 2
   FileSystemAccess:
     - SdmcW
 
