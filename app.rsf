@@ -3,7 +3,7 @@ BasicInfo:
   CompanyCode: "00"
   ProductCode: "CTR-P-PDFF"
   ContentType: "Application"
-  Logo:        "Nintendo"
+  Logo:        "Homebrew"
 
 Option:
   UseOnSD:         true
@@ -11,31 +11,50 @@ Option:
   EnableCrypt:     false
 
 AccessControlInfo:
-  CoreVersion:                 2
-  Priority:                    48
-  DisableDebug:                false
-  EnableForceDebug:            false
-  CanWriteSharedPage:          false
-  CanUsePrivilegedPriority:    false
-  CanUseNonAlphabetAndNumber:  false
-  PermitMainFunctionArgument:  false
-  CanShareDeviceMemory:        false
-  RunnableOnSleep:             false
-  SpecialMemoryArrangement:    false
-  CanAccessCore2:              false
-  IdealProcessor:              0
-  AffinityMask:                1
-  MaxCpu:                      0x2710
-  HandleTableSize:             0x200
-  KernelReleaseVersion:        0x020C
-  DescVersion:                 2
-  SystemModeExt:               "Legacy"
-  SystemMode:                  "64MB"
-  MemoryType:                  "Application"
+  CoreVersion:                  2
+  DescVersion:                  2
+  ReleaseKernelMajor:           "02"
+  ReleaseKernelMinor:           "33"
+  Priority:                     48
+  IdealProcessor:               0
+  AffinityMask:                 1
+  MaxCpu:                       0x9E
+  HandleTableSize:              0x200
+  MemoryType:                   "Application"
+  SystemMode:                   "64MB"
+  SystemModeExt:                "Legacy"
+  CpuSpeed:                     "268MHz"
+  EnableL2Cache:                false
+  DisableDebug:                 false
+  EnableForceDebug:             false
+  CanWriteSharedPage:           false
+  CanUsePrivilegedPriority:     false
+  CanUseNonAlphabetAndNumber:   false
+  PermitMainFunctionArgument:   false
+  CanShareDeviceMemory:         false
+  RunnableOnSleep:              false
+  SpecialMemoryArrange:         false
+  CanAccessCore2:               false
+
   FileSystemAccess:
-    - SdmcW
+    - DirectSdmc
+    - DirectSdmcWrite
+
+  ServiceAccessControl:
+    - APT:U
+    - fs:USER
+    - gsp::Gpu
+    - hid:USER
+    - dsp::DSP
+    - cfg:u
+    - ptm:u
+    - ndm:u
+    - ac:u
+    - mic:u
+    - ir:USER
+    - y2r:u
 
 SystemControlInfo:
   RemasterVersion: 0
   StackSize:       262144
-  SaveDataSize:    "0 KB"
+  SaveDataSize:    0KB
