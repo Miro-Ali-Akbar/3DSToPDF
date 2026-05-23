@@ -166,8 +166,7 @@ $(OUTPUT).3dsx  :   $(OUTPUT).elf $(_3DSXDEPS)
 
 $(OUTPUT).cia   :   $(OUTPUT).elf
 	@echo "Packaging CIA..."
-	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $(APP_ICON) -o $(BUILD)/icon.icn
-	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon $(BUILD)/icon.icn -target t -exefslogo
+	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon $(OUTPUT).smdh -target t -exefslogo
 
 $(OFILES_SOURCES) : $(HFILES)
 
