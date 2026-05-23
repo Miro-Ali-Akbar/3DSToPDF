@@ -83,8 +83,10 @@ jobs:
               # Strip the 'v' from the front (e.g., v1.0.1 -> 1.0.1)
               VERSION="${LATEST_TAG#v}"
 
-              # Split the version by periods into MAJOR, MINOR, PATCH
-              IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+              # Split the version by periods using shell-safe 'cut' commands
+              MAJOR=$(echo "$VERSION" | cut -d. -f1)
+              MINOR=$(echo "$VERSION" | cut -d. -f2)
+              PATCH=$(echo "$VERSION" | cut -d. -f3)
 
               # Ensure they have default values in case of weird formatting
               MAJOR=${MAJOR:-1}
