@@ -39,26 +39,11 @@ jobs:
           apt-get install -y --no-install-recommends gh
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install 3DS portlibs
-        run: dkp-pacman -Sy --noconfirm 3ds-dev || true
+      - name: Install 3DS portlibs and CIA Tools
+        run: dkp-pacman -Sy --noconfirm 3ds-dev 3ds-bannertool 3ds-makerom || true
 
       - name: Build 3dsx
         run: make -j$(nproc)
-
-      - name: Download CIA tools
-        run: |
-          mkdir -p /tmp/ciatools
-          curl -sSL \
-            "https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool-ubuntu-x86_64.zip" \
-            -o /tmp/bt.zip && \
-            unzip -q /tmp/bt.zip -d /tmp/ciatools && \
-            chmod +x /tmp/ciatools/bannertool || echo "bannertool unavailable"
-          curl -sSL \
-            "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip" \
-            -o /tmp/mr.zip && \
-            unzip -q /tmp/mr.zip -d /tmp/ciatools && \
-            chmod +x /tmp/ciatools/makerom || echo "makerom unavailable"
-          echo "/tmp/ciatools" >> "$GITHUB_PATH"
 
       - name: Build CIA
         run: |
@@ -127,7 +112,6 @@ jobs:
 
           Built from \`${COMMIT_SHA}\`.
           NOTES
-            EXTRA_ASSETS="dist/cia_qr.png"
           else
             cat > /tmp/notes.md << NOTES
           ## 3DS PDF Reader ${RELEASE_TAG}
@@ -146,7 +130,6 @@ jobs:
 
           Built from \`${COMMIT_SHA}\`.
           NOTES
-            EXTRA_ASSETS=""
           fi
 
           gh release create "$RELEASE_TAG" \
