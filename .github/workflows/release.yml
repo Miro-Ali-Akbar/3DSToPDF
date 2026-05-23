@@ -60,12 +60,12 @@ jobs:
             chmod +x /tmp/ciatools/makerom || echo "makerom unavailable"
           echo "/tmp/ciatools" >> "$GITHUB_PATH"
 
-      - name: Build CIA (best-effort)
+      - name: Build CIA
         run: |
           export APP_TITLE="3DS PDF Reader"
           export APP_AUTHOR="Miro Ali Akbar"
           export APP_DESC="A PDF reader for Nintendo 3DS"
-          make cia || echo "CIA build skipped"
+          make cia
 
       - name: Collect artifacts and generate QR code
         env:
