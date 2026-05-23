@@ -39,7 +39,6 @@ AccessControlInfo:
     - cam:u
     - cecd:u
     - cfg:u
-    - csnd:CONT
     - dsp::DSP
     - fs:USER
     - gsp::Gpu
