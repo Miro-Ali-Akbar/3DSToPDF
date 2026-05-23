@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.0)"
+        description: "Release tag (e.g., v1.0.0)"
         required: true
-        default: "v1.0.0"
+        default: "auto"
       prerelease:
         description: "Mark as pre-release?"
         type: boolean
@@ -39,11 +39,25 @@ jobs:
           apt-get install -y --no-install-recommends gh
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install 3DS portlibs and CIA Tools
-        run: dkp-pacman -Sy --noconfirm 3ds-dev 3ds-bannertool 3ds-makerom || true
+      - name: Install 3DS portlibs
+        run: dkp-pacman -Sy --noconfirm 3ds-dev || true
 
       - name: Build 3dsx
         run: make -j$(nproc)
+
+      - name: Download CIA tools
+        run: |
+          # Download and install Bannertool
+          curl -sSL "https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool.zip" -o /tmp/bt.zip
+          unzip -q /tmp/bt.zip -d /tmp/bt
+          cp /tmp/bt/linux-x86_64/bannertool /usr/local/bin/bannertool
+          chmod +x /usr/local/bin/bannertool
+
+          # Download and install Makerom
+          curl -sSL "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip" -o /tmp/mr.zip
+          unzip -q /tmp/mr.zip -d /tmp/mr
+          cp /tmp/mr/makerom /usr/local/bin/makerom
+          chmod +x /usr/local/bin/makerom
 
       - name: Build CIA
         run: |
@@ -52,9 +66,44 @@ jobs:
           export APP_DESC="A PDF reader for Nintendo 3DS"
           make cia
 
+      - name: Determine Release Tag
+        id: determine_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$INPUT_TAG" = "auto" ]; then
+            # Fetch the latest release tag (suppress output if it doesn't exist)
+            LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || echo "none")
+
+            if [ "$LATEST_TAG" = "none" ]; then
+              # If there are no previous releases, start at v1.0.0
+              NEXT_TAG="v1.0.0"
+            else
+              # Strip the 'v' from the front (e.g., v1.0.1 -> 1.0.1)
+              VERSION="${LATEST_TAG#v}"
+
+              # Split the version by periods into MAJOR, MINOR, PATCH
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+              # Ensure they have default values in case of weird formatting
+              MAJOR=${MAJOR:-1}
+              MINOR=${MINOR:-0}
+              PATCH=${PATCH:-0}
+
+              # Increment the final number (patch)
+              PATCH=$((PATCH + 1))
+              NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+            fi
+            echo "Calculated next tag: $NEXT_TAG"
+            echo "RELEASE_TAG=$NEXT_TAG" >> "$GITHUB_ENV"
+          else
+            echo "Using manual tag: $INPUT_TAG"
+            echo "RELEASE_TAG=$INPUT_TAG" >> "$GITHUB_ENV"
+          fi
+
       - name: Collect artifacts and generate QR code
         env:
-          RELEASE_TAG: ${{ github.event.inputs.tag }}
           REPO: ${{ github.repository }}
         run: |
           mkdir -p dist
@@ -78,7 +127,6 @@ jobs:
 
       - name: Create GitHub release
         env:
-          RELEASE_TAG: ${{ github.event.inputs.tag }}
           IS_PRERELEASE: ${{ github.event.inputs.prerelease }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
