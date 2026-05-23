@@ -1,12 +1,16 @@
 BasicInfo:
-  Title:       "3DS PDF Reader"
-  CompanyCode: "00"
-  ProductCode: "CTR-P-PDFF"
-  ContentType: Application
-  Logo:        none
+  Title                   : "3DS PDF Reader"
+  CompanyCode             : "00"
+  ProductCode             : "CTR-P-PDFR"
+  ContentType             : Application
+  Logo                    : None
 
-ROM:
-  Host                    : CTR
+TitleInfo:
+  UniqueId                : 0xF8001
+  Category                : Application
+
+Option:
+  UseOnSD                 : true
 
 SystemControlInfo:
   SaveDataSize            : 0KB
