@@ -16,7 +16,7 @@ AccessControlInfo:
   IdealProcessor          : 0
   AffinityMask            : 1
   CoreVersion             : 2
-  SystemMode              : 032MB
+  SystemMode              : 64MB
 
 SystemControlInfo:
   SaveDataSize            : 0KB
