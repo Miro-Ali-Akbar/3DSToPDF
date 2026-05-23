@@ -48,7 +48,7 @@ jobs:
       - name: Download CIA tools
         run: |
           # Download and install Bannertool
-          curl -sSL "https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool.zip" -o /tmp/bt.zip
+          curl -sSL "https://github.com/Epicpkmn11/bannertool/releases/download/1.2.0/bannertool.zip" -o /tmp/bt.zip
           unzip -q /tmp/bt.zip -d /tmp/bt
           cp /tmp/bt/linux-x86_64/bannertool /usr/local/bin/bannertool
           chmod +x /usr/local/bin/bannertool
