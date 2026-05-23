@@ -10,165 +10,119 @@ TOPDIR ?= $(CURDIR)
 include $(DEVKITARM)/3ds_rules
 
 #---------------------------------------------------------------------------------
-# TARGET is the name of the output
-# BUILD is the directory where object files & intermediate files will be placed
-# SOURCES is a list of directories containing source code
-# DATA is a list of directories containing data files
-# INCLUDES is a list of directories containing header files
-# GRAPHICS is a list of directories containing graphics files
-# GFXBUILD is the directory where converted graphics files will be placed
-#   If set to $(BUILD), it will statically link in the converted
-#   files as if they were data files.
-#
-# NO_SMDH: if set to anything, no SMDH file is generated.
-# ROMFS is the directory which contains the RomFS, relative to the Makefile (Optional)
-# APP_TITLE is the name of the app stored in the SMDH file (Optional)
-# APP_DESCRIPTION is the description of the app stored in the SMDH file (Optional)
-# APP_AUTHOR is the author of the app stored in the SMDH file (Optional)
-# ICON is the filename of the icon (.png), relative to the project folder.
-#   If not set, it attempts to use one of the following (in this order):
-#     - <Project name>.png
-#     - icon.png
-#     - <libctru folder>/default_icon.png
-#---------------------------------------------------------------------------------
-TARGET		:=	$(notdir $(CURDIR))
-BUILD		:=	build
-SOURCES		:=	source
-DATA		:=	data
-INCLUDES	:=	include
-GRAPHICS	:=	gfx
-GFXBUILD	:=	$(BUILD)
-#ROMFS		:=	romfs
-#GFXBUILD	:=	$(ROMFS)/gfx
+TARGET      := $(notdir $(CURDIR))
+BUILD       := build
+SOURCES     := source
+DATA        := data
+INCLUDES    := include
+GRAPHICS    := gfx
+GFXBUILD    := $(BUILD)
+#ROMFS      := romfs
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+ARCH        := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS	:=	-g -Wall -O2 -mword-relocations \
-			-ffunction-sections \
-			$(ARCH)
+CFLAGS      := -g -Wall -O2 -mword-relocations \
+               -ffunction-sections \
+               $(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -D__3DS__
+CFLAGS      += $(INCLUDE) -D__3DS__
 
-CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+CXXFLAGS    := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
-ASFLAGS	:=	-g $(ARCH)
-LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+ASFLAGS     := -g $(ARCH)
+LDFLAGS     = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS := -lmupdf -lmupdf-third -lcitro2d -lcitro3d -lctru -lm
-
-#---------------------------------------------------------------------------------
-# list of directories containing libraries, this must be the top level containing
-# include and lib
-#---------------------------------------------------------------------------------
-LIBDIRS	:= $(PORTLIBS) $(CTRULIB) $(TOPDIR)
-
+LIBS        := -lmupdf -lmupdf-third -lcitro2d -lcitro3d -lctru -lm
 
 #---------------------------------------------------------------------------------
-# no real need to edit anything past this point unless you need to add additional
-# rules for different file extensions
+LIBDIRS     := $(PORTLIBS) $(CTRULIB) $(TOPDIR)
+
+#---------------------------------------------------------------------------------
+# Application Metadata
+#---------------------------------------------------------------------------------
+APP_TITLE     := 3DS PDF Reader
+APP_DESC      := A PDF reader for Nintendo 3DS
+APP_AUTHOR    := Miro Ali Akbar
+APP_VER_MAJOR := 1
+APP_VER_MINOR := 0
+
 #---------------------------------------------------------------------------------
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #---------------------------------------------------------------------------------
 
-export OUTPUT	:=	$(CURDIR)/$(TARGET)
-export TOPDIR	:=	$(CURDIR)
+export OUTPUT   := $(CURDIR)/$(TARGET)
+export TOPDIR   := $(CURDIR)
 
-export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
+                   $(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir)) \
+                   $(foreach dir,$(DATA),$(CURDIR)/$(dir))
 
-export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+export DEPSDIR  := $(CURDIR)/$(BUILD)
 
-CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
-PICAFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
-SHLISTFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
-GFXFILES	:=	$(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.t3s)))
-BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+CFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES    := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+SFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+PICAFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
+SHLISTFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
+GFXFILES    := $(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.t3s)))
+BINFILES    := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
 
-#---------------------------------------------------------------------------------
-# use CXX for linking C++ projects, CC for standard C
-#---------------------------------------------------------------------------------
 ifeq ($(strip $(CPPFILES)),)
-#---------------------------------------------------------------------------------
-	export LD	:=	$(CC)
-#---------------------------------------------------------------------------------
+    export LD   := $(CC)
 else
-#---------------------------------------------------------------------------------
-	export LD	:=	$(CXX)
-#---------------------------------------------------------------------------------
+    export LD   := $(CXX)
 endif
-#---------------------------------------------------------------------------------
 
-#---------------------------------------------------------------------------------
 ifeq ($(GFXBUILD),$(BUILD))
-#---------------------------------------------------------------------------------
-export T3XFILES :=  $(GFXFILES:.t3s=.t3x)
-#---------------------------------------------------------------------------------
+export T3XFILES := $(GFXFILES:.t3s=.t3x)
 else
-#---------------------------------------------------------------------------------
-export ROMFS_T3XFILES	:=	$(patsubst %.t3s, $(GFXBUILD)/%.t3x, $(GFXFILES))
-export T3XHFILES		:=	$(patsubst %.t3s, $(BUILD)/%.h, $(GFXFILES))
-#---------------------------------------------------------------------------------
+export ROMFS_T3XFILES    := $(patsubst %.t3s, $(GFXBUILD)/%.t3x, $(GFXFILES))
+export T3XHFILES        := $(patsubst %.t3s, $(BUILD)/%.h, $(GFXFILES))
 endif
-#---------------------------------------------------------------------------------
 
-export OFILES_SOURCES 	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES_SOURCES   := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 
-export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES)) \
-			$(PICAFILES:.v.pica=.shbin.o) $(SHLISTFILES:.shlist=.shbin.o) \
-			$(addsuffix .o,$(T3XFILES))
+export OFILES_BIN   := $(addsuffix .o,$(BINFILES)) \
+                       $(PICAFILES:.v.pica=.shbin.o) $(SHLISTFILES:.shlist=.shbin.o) \
+                       $(addsuffix .o,$(T3XFILES))
 
 export OFILES := $(OFILES_BIN) $(OFILES_SOURCES)
 
-export HFILES	:=	$(PICAFILES:.v.pica=_shbin.h) $(SHLISTFILES:.shlist=_shbin.h) \
-			$(addsuffix .h,$(subst .,_,$(BINFILES))) \
-			$(GFXFILES:.t3s=.h)
+export HFILES   := $(PICAFILES:.v.pica=_shbin.h) $(SHLISTFILES:.shlist=_shbin.h) \
+                   $(addsuffix .h,$(subst .,_,$(BINFILES))) \
+                   $(GFXFILES:.t3s=.h)
 
-export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD)
+export INCLUDE  := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+                   $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+                   -I$(CURDIR)/$(BUILD)
 
-export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
-export _3DSXDEPS	:=	$(if $(NO_SMDH),,$(OUTPUT).smdh)
+export _3DSXDEPS    := $(if $(NO_SMDH),,$(OUTPUT).smdh)
 
 ifeq ($(strip $(ICON)),)
-	icons := $(wildcard *.png)
-	ifneq (,$(findstring $(TARGET).png,$(icons)))
-		export APP_ICON := $(TOPDIR)/$(TARGET).png
-	else
-		ifneq (,$(findstring icon.png,$(icons)))
-			export APP_ICON := $(TOPDIR)/icon.png
-		endif
-	endif
+    icons := $(wildcard *.png)
+    ifneq (,$(findstring $(TARGET).png,$(icons)))
+        export APP_ICON := $(TOPDIR)/$(TARGET).png
+    else
+        ifneq (,$(findstring icon.png,$(icons)))
+            export APP_ICON := $(TOPDIR)/icon.png
+        endif
+    endif
 else
-	export APP_ICON := $(TOPDIR)/$(ICON)
+    export APP_ICON := $(TOPDIR)/$(ICON)
 endif
 
 ifeq ($(strip $(NO_SMDH)),)
-	export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
+    export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
 endif
 
 ifneq ($(ROMFS),)
-	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
+    export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
-
-APP_TITLE    := 3DS PDF Reader
-APP_DESC     := A PDF reader for Nintendo 3DS
-APP_AUTHOR   := Miro Ali Akbar
-APP_VER_MAJOR := 1
-APP_VER_MINOR := 0
-
-# cia target requires bannertool and makerom to be on PATH.
-# Install from:
-#   bannertool: https://github.com/Steveice10/bannertool/releases
-#   makerom:    https://github.com/3DSGuy/Project_CTR/releases
-CIA_TITLE_ID ?= 0x00040000DEADBEEF
 
 .PHONY: all clean cia
 
@@ -176,20 +130,8 @@ CIA_TITLE_ID ?= 0x00040000DEADBEEF
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
-#---------------------------------------------------------------------------------
-# CIA build — needs bannertool + makerom on PATH.
-# A placeholder audio.bcwav and a 48×48 icon.png are expected in the project root.
-# If icon.png is absent, makerom will use a blank icon.
 cia: all
-	@echo Building CIA ...
-	makerom -f cia \
-		-o "$(CURDIR)/$(TARGET).cia" \
-		-elf "$(CURDIR)/$(TARGET).elf" \
-		-rsf "$(CURDIR)/app.rsf" \
-		-icon "$(CURDIR)/$(TARGET).smdh" \
-		-exefslogo \
-		-target t
-	@echo CIA built: $(TARGET).cia
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $(OUTPUT).cia
 
 $(BUILD):
 	@mkdir -p $@
@@ -207,11 +149,10 @@ endif
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
+	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(TARGET).cia
 
 #---------------------------------------------------------------------------------
-$(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s
-#---------------------------------------------------------------------------------
+$(GFXBUILD)/%.t3x    $(BUILD)/%.h    :    %.t3s
 	@echo $(notdir $<)
 	@tex3ds -i $< -H $(BUILD)/$*.h -d $(DEPSDIR)/$*.d -o $(GFXBUILD)/$*.t3x
 
@@ -221,31 +162,31 @@ else
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
-$(OUTPUT).3dsx	:	$(OUTPUT).elf $(_3DSXDEPS)
+$(OUTPUT).3dsx  :   $(OUTPUT).elf $(_3DSXDEPS)
+
+$(OUTPUT).cia   :   $(OUTPUT).elf
+	@echo "Packaging CIA..."
+	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $(APP_ICON) -o $(BUILD)/icon.icn
+	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon $(BUILD)/icon.icn -target t -exefslogo
 
 $(OFILES_SOURCES) : $(HFILES)
 
-$(OUTPUT).elf	:	$(OFILES)
+$(OUTPUT).elf   :   $(OFILES)
 
 #---------------------------------------------------------------------------------
-# you need a rule like this for each extension you use as binary data
-#---------------------------------------------------------------------------------
-%.bin.o	%_bin.h :	%.bin
-#---------------------------------------------------------------------------------
+%.bin.o    %_bin.h :    %.bin
 	@echo $(notdir $<)
 	@$(bin2o)
 
 #---------------------------------------------------------------------------------
-.PRECIOUS	:	%.t3x %.shbin
+.PRECIOUS    :    %.t3x %.shbin
 #---------------------------------------------------------------------------------
-%.t3x.o	%_t3x.h :	%.t3x
-#---------------------------------------------------------------------------------
+%.t3x.o    %_t3x.h :    %.t3x
 	$(SILENTMSG) $(notdir $<)
 	$(bin2o)
 
 #---------------------------------------------------------------------------------
 %.shbin.o %_shbin.h : %.shbin
-#---------------------------------------------------------------------------------
 	$(SILENTMSG) $(notdir $<)
 	$(bin2o)
 
