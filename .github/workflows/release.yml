@@ -29,7 +29,7 @@ jobs:
           rm -f /etc/apt/sources.list.d/devkitpro*.list
           apt-get update -qq
           apt-get install -y --no-install-recommends \
-            git unzip curl ca-certificates qrencode
+            git unzip curl ca-certificates qrencode imagemagick python3
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             -o /usr/share/keyrings/githubcli-archive-keyring.gpg
           chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -41,6 +41,21 @@ jobs:
 
       - name: Install 3DS portlibs
         run: dkp-pacman -Sy --noconfirm 3ds-dev || true
+
+      - name: Generate Banner Assets
+        run: |
+          # Create a clean, black 256x128 PNG file required by bannertool
+          convert -size 256x128 xc:black banner.png
+
+          # Use Python's core standard library to generate a 1-second silent WAV audio file
+          python3 -c "
+          import wave
+          with wave.open('audio.wav', 'wb') as w:
+              w.setnchannels(1)
+              w.setsampwidth(2)
+              w.setframerate(44100)
+              w.writeframes(b'\x00' * 88200)
+          "
 
       - name: Build 3dsx
         run: make -j$(nproc)
