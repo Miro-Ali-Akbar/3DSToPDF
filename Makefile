@@ -179,7 +179,7 @@ $(BUILD)/romfs.bin:
 $(OUTPUT).cia   :   $(OUTPUT).elf
 	@echo "Packaging CIA..."
 	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $(APP_ICON) -o icon.icn
-	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon icon.icn -target t -exefslogo
+	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon icon.icn -target t -exefslogo -desc app:7
 
 $(OFILES_SOURCES) : $(HFILES)
 
