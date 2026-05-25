@@ -839,6 +839,7 @@ int main(int argc, char *argv[]) {
     goto end;
   fz_register_document_handlers(ctx);
 
+  svcSleepThread(500000000LL); // 500ms - give SD card time to mount in CIA context
   scan_pdfs();
   progress_load();
   qsort(g_ent, g_nent, sizeof(PDFEntry), ent_cmp);
