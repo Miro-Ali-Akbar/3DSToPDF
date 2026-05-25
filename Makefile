@@ -17,7 +17,7 @@ DATA        := data
 INCLUDES    := include
 GRAPHICS    := gfx
 GFXBUILD    := $(BUILD)
-#ROMFS      := romfs
+ROMFS       := romfs
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -163,6 +163,18 @@ else
 # main targets
 #---------------------------------------------------------------------------------
 $(OUTPUT).3dsx  :   $(OUTPUT).elf $(_3DSXDEPS)
+
+ifneq ($(ROMFS),)
+    MAKEROM_ROMFS := -romfs $(BUILD)/romfs.bin
+    BUILD_ROMFS   := $(BUILD)/romfs.bin
+else
+    MAKEROM_ROMFS :=
+    BUILD_ROMFS   :=
+endif
+
+$(BUILD)/romfs.bin:
+	@echo "Building RomFS binary..."
+	@3dstool -c $(BUILD)/romfs.bin --romfs-dir $(TOPDIR)/$(ROMFS)
 
 $(OUTPUT).cia   :   $(OUTPUT).elf
 	@echo "Packaging CIA..."
