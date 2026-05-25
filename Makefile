@@ -176,10 +176,11 @@ $(BUILD)/romfs.bin:
 	@echo "Building RomFS binary..."
 	@3dstool -c $(BUILD)/romfs.bin --romfs-dir $(TOPDIR)/$(ROMFS)
 
-$(OUTPUT).cia   :   $(OUTPUT).elf
+$(OUTPUT).cia   :   $(OUTPUT).elf $(BUILD_ROMFS)
 	@echo "Packaging CIA..."
 	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $(APP_ICON) -o icon.icn
-	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon icon.icn -target t -exefslogo
+	@bannertool makebanner -i $(APP_ICON) -o banner.bnr
+	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon icon.icn -banner banner.bnr -target t -exefslogo $(MAKEROM_ROMFS)
 
 $(OFILES_SOURCES) : $(HFILES)
 
