@@ -3,9 +3,6 @@ BasicInfo:
   ProductCode                 : "CTR-P-PDFR"
   Logo                        : Homebrew # Nintendo / Licensed / Distributed / iQue / iQueForSystem
 
-RomFs:
-  RootPath: "../romfs"
-
 TitleInfo:
   UniqueId                    : 0xF89AB
   Category                    : Application

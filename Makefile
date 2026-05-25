@@ -180,7 +180,7 @@ $(OUTPUT).cia   :   $(OUTPUT).elf $(BUILD_ROMFS)
 	@echo "Packaging CIA..."
 	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $(APP_ICON) -o icon.icn
 	@bannertool makebanner -i $(TOPDIR)/banner.png -a $(TOPDIR)/audio.wav -o banner.bnr
-	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon icon.icn -banner banner.bnr -target t -exefslogo $(MAKEROM_ROMFS)
+	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon icon.icn -banner banner.bnr -target t $(MAKEROM_ROMFS)
 
 $(OFILES_SOURCES) : $(HFILES)
 
