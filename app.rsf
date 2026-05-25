@@ -1,13 +1,113 @@
 BasicInfo:
-  Title                   : "3DS PDF Reader"
-  CompanyCode             : "00"
-  ProductCode             : "CTR-P-PDFR"
-  ContentType             : Application
-  Logo                    : None
+  Title                       : "3DS PDF Reader"
+  CompanyCode                 : "00"
+  ProductCode                 : "CTR-P-PDFR"
+  ContentType                 : Application
+  Logo                        : None
 
 TitleInfo:
-  UniqueId                : 0xF89AB
-  Category                : Application
+  UniqueId                    : 0xF89AB
+  Category                    : Application
 
 Option:
-  UseOnSD                 : true
+  UseOnSD                     : true
+
+AccessControlInfo:
+  IdealProcessor              : 0
+  AffinityMask                : 1
+  Priority                    : 16
+  MaxCpu                      : 0x9E
+  HandleTableSize             : 512
+  DisableDebug                : false
+  EnableForceDebug            : false
+  CanWriteSharedPage          : false
+  CanUsePrivilegedPriority    : false
+  CanUseNonAlphabetAndNumber  : false
+  PermitMainFunctionArgument  : false
+  CanShareDeviceMemory        : false
+  RunnableOnSleep             : false
+  SpecialMemoryArrange        : false
+  CoreVersion                 : 2
+  DescVersion                 : 2
+  ReleaseKernelMajor          : "02"
+  ReleaseKernelMinor          : "33"
+  SystemMode                  : 64MB
+  FileSystemAccess:
+    - DirectSavedataAccess
+  ServiceAccessControl:
+    - apt:u
+    - ac:u
+    - am:net
+    - boss:U
+    - cam:u
+    - cecd:u
+    - cfg:u
+    - dsp::DSP
+    - fs:USER
+    - gsp::Gpu
+    - hid:USER
+    - http:C
+    - ir:u
+    - ir:USER
+    - mic:u
+    - ndm:u
+    - news:u
+    - nwm::UDS
+    - ptm:u
+    - pxi:dev
+    - ro:1
+    - soc:U
+    - ssl:C
+    - y2r:u
+  SystemCallAccess:
+    Arbitration: 33
+    CancelTimer: 28
+    ClearEvent: 24
+    ClearTimer: 29
+    CloseHandle: 35
+    ConnectToPort: 45
+    CreateAddressArbiter: 34
+    CreateEvent: 23
+    CreateMemoryBlock: 30
+    CreateMutex: 19
+    CreateSemaphore: 21
+    CreateThread: 8
+    CreateTimer: 26
+    DuplicateHandle: 39
+    ExitProcess: 3
+    ExitThread: 9
+    GetHandleInfo: 41
+    GetProcessIdOfThread: 53
+    GetProcessIdealProcessor: 48
+    GetProcessInfo: 43
+    GetResourceLimit: 56
+    GetResourceLimitCurrentValues: 58
+    GetResourceLimitLimitValues: 57
+    GetSystemInfo: 42
+    GetSystemTick: 40
+    GetThreadContext: 59
+    GetThreadId: 55
+    GetThreadIdealProcessor: 47
+    GetThreadInfo: 44
+    GetThreadPriority: 11
+    MapMemoryBlock: 31
+    OutputDebugString: 61
+    ReleaseMutex: 20
+    ReleaseSemaphore: 22
+    ReplyAndReceive: 49
+    SendSyncRequest1: 46
+    SendSyncRequest2: 50
+    SendSyncRequest3: 51
+    SendSyncRequest4: 52
+    SetEvent: 25
+    SetThreadPriority: 12
+    SetTimer: 27
+    SleepThread: 10
+    UnmapMemoryBlock: 32
+    WaitSynchronization1: 36
+    WaitSynchronizationN: 37
+
+SystemControlInfo:
+  SaveDataSize                : 0KB
+  RemasterVersion             : 0
+  StackSize                   : 0x40000
