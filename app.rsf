@@ -33,9 +33,7 @@ AccessControlInfo:
   ReleaseKernelMinor          : "33"
   SystemMode                  : 64MB
   FileSystemAccess:
-    - Debug
-    - DirectSdmc
-    - DirectSdmcWrite
+    - SdmcW
   ServiceAccessControl:
     - apt:u
     - ac:u
