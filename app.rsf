@@ -32,9 +32,6 @@ AccessControlInfo:
   ReleaseKernelMajor          : "02"
   ReleaseKernelMinor          : "33"
   SystemMode                  : 64MB
-  FileSystemAccess:
-    - DirectSdmc
-    - DirectSdmcWrite
   ServiceAccessControl:
     - apt:u
     - ac:u
