@@ -10,45 +10,98 @@ TOPDIR ?= $(CURDIR)
 include $(DEVKITARM)/3ds_rules
 
 #---------------------------------------------------------------------------------
-TARGET      := $(notdir $(CURDIR))
+# External tools
+#---------------------------------------------------------------------------------
+ifeq ($(OS),Windows_NT)
+MAKEROM 	:= makerom.exe
+BANNERTOOL 	:= bannertool.exe
+
+else
+MAKEROM   	:= makerom
+BANNERTOOL 	:= bannertool
+
+endif
+
+#---------------------------------------------------------------------------------
+# TARGET is the name of the output
+# BUILD is the directory where object files & intermediate files will be placed
+# SOURCES is a list of directories containing source code
+# DATA is a list of directories containing data files
+# INCLUDES is a list of directories containing header files
+# GRAPHICS is a list of directories containing graphics files
+# GFXBUILD is the directory where converted graphics files will be placed
+#   If set to $(BUILD), it will statically link in the converted
+#   files as if they were data files.
+#
+# NO_SMDH: if set to anything, no SMDH file is generated.
+# ROMFS is the directory which contains the RomFS, relative to the Makefile (Optional)
+# APP_TITLE is the name of the app stored in the SMDH file (Optional)
+# APP_DESCRIPTION is the description of the app stored in the SMDH file (Optional)
+# APP_AUTHOR is the author of the app stored in the SMDH file (Optional)
+# ICON is the filename of the icon (.png), relative to the project folder.
+#   If not set, it attempts to use one of the following (in this order):
+#     - <Project name>.png
+#     - icon.png
+#     - <libctru folder>/default_icon.png
+#---------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+TARGET      := 3dsToPdf
 BUILD       := build
 SOURCES     := source
 DATA        := data
 INCLUDES    := include
 GRAPHICS    := gfx
 GFXBUILD    := $(BUILD)
-#ROMFS      := romfs
+ROMFS       := romfs
+
+#---------------------------------------------------------------------------------
+# Application Metadata
+#---------------------------------------------------------------------------------
+APP_TITLE       := 3DS PDF Reader
+APP_DESCRIPTION := A PDF reader for Nintendo 3DS
+APP_AUTHOR      := Miro Ali Akbar
+
+ICON		:=	app/icon.png
+BNR_IMAGE	:=  app/banner.png
+RSF_FILE	:=	app/build-cia.rsf
+
+#---------------------------------------------------------------------------------
+# Versioning
+#---------------------------------------------------------------------------------
+VERSION_MAJOR := 0
+VERSION_MINOR := 1
+VERSION_MICRO := 14
+
+VERSION_STRING := "v$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_MICRO)"
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
 ARCH        := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS      := -g -Wall -O2 -mword-relocations \
-               -ffunction-sections \
-               $(ARCH)
+CFLAGS      :=	-g -Wall -Wno-psabi -O2 -mword-relocations \
+		            -DVERSION_STRING=\"$(VERSION_STRING)\" \
+		            -fomit-frame-pointer -ffunction-sections \
+		            $(ARCH)
 
-CFLAGS      += $(INCLUDE) -D__3DS__
+CFLAGS	    +=	$(INCLUDE) -D__3DS__ -D_GNU_SOURCE=1
 
-CXXFLAGS    := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+CXXFLAGS    := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
 
 ASFLAGS     := -g $(ARCH)
-LDFLAGS     = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+LDFLAGS      = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 LIBS        := -lmupdf -lmupdf-third -lcitro2d -lcitro3d -lctru -lm
 
 #---------------------------------------------------------------------------------
+# list of directories containing libraries, this must be the top level containing
+# include and lib
+#---------------------------------------------------------------------------------
 LIBDIRS     := $(PORTLIBS) $(CTRULIB) $(TOPDIR)
 
 #---------------------------------------------------------------------------------
-# Application Metadata
-#---------------------------------------------------------------------------------
-APP_TITLE     := 3DS PDF Reader
-APP_DESC      := A PDF reader for Nintendo 3DS
-APP_AUTHOR    := Miro Ali Akbar
-APP_VER_MAJOR := 1
-APP_VER_MINOR := 0
-
+# no real need to edit anything past this point unless you need to add additional
+# rules for different file extensions
 #---------------------------------------------------------------------------------
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #---------------------------------------------------------------------------------
@@ -80,7 +133,7 @@ ifeq ($(GFXBUILD),$(BUILD))
 export T3XFILES := $(GFXFILES:.t3s=.t3x)
 else
 export ROMFS_T3XFILES    := $(patsubst %.t3s, $(GFXBUILD)/%.t3x, $(GFXFILES))
-export T3XHFILES        := $(patsubst %.t3s, $(BUILD)/%.h, $(GFXFILES))
+export T3XHFILES         := $(patsubst %.t3s, $(BUILD)/%.h, $(GFXFILES))
 endif
 
 export OFILES_SOURCES   := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
@@ -89,11 +142,11 @@ export OFILES_BIN   := $(addsuffix .o,$(BINFILES)) \
                        $(PICAFILES:.v.pica=.shbin.o) $(SHLISTFILES:.shlist=.shbin.o) \
                        $(addsuffix .o,$(T3XFILES))
 
-export OFILES := $(OFILES_BIN) $(OFILES_SOURCES)
+export OFILES   := $(OFILES_BIN) $(OFILES_SOURCES)
 
-export HFILES   := $(PICAFILES:.v.pica=_shbin.h) $(SHLISTFILES:.shlist=_shbin.h) \
-                   $(addsuffix .h,$(subst .,_,$(BINFILES))) \
-                   $(GFXFILES:.t3s=.h)
+export HFILES 	:=	$(PICAFILES:.v.pica=_shbin.h) $(SHLISTFILES:.shlist=_shbin.h) \
+ 						    		$(addsuffix .h,$(subst .,_,$(BINFILES))) \
+ 						    		$(GFXFILES:.t3s=.h)
 
 export INCLUDE  := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                    $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
@@ -124,84 +177,103 @@ ifneq ($(ROMFS),)
     export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: all clean cia
+.PHONY: all clean 3dsx cia
 
 #---------------------------------------------------------------------------------
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
-cia: all
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $(OUTPUT).cia
+cia: $(BUILD)
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile cia
 
-$(BUILD):
-	@mkdir -p $@
-
-ifneq ($(GFXBUILD),$(BUILD))
-$(GFXBUILD):
-	@mkdir -p $@
-endif
-
-ifneq ($(DEPSDIR),$(BUILD))
-$(DEPSDIR):
-	@mkdir -p $@
-endif
+3dsx: $(BUILD)
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile 3dsx
 
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(TARGET).cia
+	@rm -fr $(BUILD) $(TARGET).elf
+	@rm -fr $(BUILD) $(TARGET).cia
+	@rm -fr $(BUILD) $(TARGET).3dsx
+	@rm -fr $(BUILD) $(TARGET).smdh
+	@rm -fr $(OUTDIR)
 
 #---------------------------------------------------------------------------------
-$(GFXBUILD)/%.t3x    $(BUILD)/%.h    :    %.t3s
+$(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s
+#---------------------------------------------------------------------------------
 	@echo $(notdir $<)
-	@tex3ds -i $< -H $(BUILD)/$*.h -d $(DEPSDIR)/$*.d -o $(GFXBUILD)/$*.t3x
+	$(DEVKITPRO)/tools/bin/tex3ds -i $< -H $(BUILD)/$*.h -d $(DEPSDIR)/$*.d -o $(GFXBUILD)/$*.t3x
 
 #---------------------------------------------------------------------------------
+$(BUILD):
+	@[ -d $@ ] || mkdir -p $@
+#---------------------------------------------------------------------------------
+
 else
 
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
-$(OUTPUT).3dsx  :   $(OUTPUT).elf $(_3DSXDEPS)
+all: $(OUTPUT).elf $(OUTPUT).smdh $(OUTPUT).3dsx
 
-ifneq ($(ROMFS),)
-    MAKEROM_ROMFS := -romfs $(BUILD)/romfs.bin
-    BUILD_ROMFS   := $(BUILD)/romfs.bin
-else
-    MAKEROM_ROMFS :=
-    BUILD_ROMFS   :=
-endif
+cia: $(OUTPUT).cia
 
-$(BUILD)/romfs.bin:
-	@echo "Building RomFS binary..."
-	@3dstool -c $(BUILD)/romfs.bin --romfs-dir $(TOPDIR)/$(ROMFS)
+$(OUTPUT).elf	:	$(OFILES)
 
-$(OUTPUT).cia   :   $(OUTPUT).elf $(BUILD_ROMFS)
-	@echo "Packaging CIA..."
-	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $(APP_ICON) -o icon.icn
-	@bannertool makebanner -i $(TOPDIR)/banner.png -a $(TOPDIR)/audio.wav -o banner.bnr
-	@makerom -f cia -o $(OUTPUT).cia -elf $(OUTPUT).elf -rsf $(TOPDIR)/app.rsf -icon icon.icn -banner banner.bnr -target t $(MAKEROM_ROMFS)
+$(OUTPUT).cia	:	$(OUTPUT).elf $(OUTPUT).smdh
+	@$(BANNERTOOL) makebanner -i "../app/banner.png" -a "../app/Banneraudio.wav" -o "../app/banner.bin"
 
-$(OFILES_SOURCES) : $(HFILES)
+	@$(BANNERTOOL) makesmdh -i "../app/icon.png" -s "$(APP_TITLE)" -l "$(APP_DESCRIPTION)" -p "$(APP_AUTHOR)" -o "../app/icon.bin"
 
-$(OUTPUT).elf   :   $(OFILES)
+	@$(MAKEROM) -f cia -target t -exefslogo -o "../$(TARGET).cia" -elf "../$(TARGET).elf" -rsf "../app/build-cia.rsf" -banner "../app/banner.bin" -icon "../app/icon.bin" -DAPP_ROMFS="$(TOPDIR)/$(ROMFS)" -major $(VERSION_MAJOR) -minor $(VERSION_MINOR) -micro $(VERSION_MICRO) -DAPP_VERSION_MAJOR="$(VERSION_MAJOR)"
 
 #---------------------------------------------------------------------------------
-%.bin.o    %_bin.h :    %.bin
+# you need a rule like this for each extension you use as binary data
+#---------------------------------------------------------------------------------
+%.bin.o	%_bin.h :	%.bin
+#---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
 
 #---------------------------------------------------------------------------------
-.PRECIOUS    :    %.t3x %.shbin
+.PRECIOUS	:	%.t3x
 #---------------------------------------------------------------------------------
-%.t3x.o    %_t3x.h :    %.t3x
-	$(SILENTMSG) $(notdir $<)
-	$(bin2o)
+%.t3x.o	%_t3x.h :	%.t3x
+#---------------------------------------------------------------------------------
+	@echo $(notdir $<)
+	@$(bin2o)
 
 #---------------------------------------------------------------------------------
-%.shbin.o %_shbin.h : %.shbin
-	$(SILENTMSG) $(notdir $<)
-	$(bin2o)
+# rules for assembling GPU shaders
+#---------------------------------------------------------------------------------
+define shader-as
+	$(eval CURBIN := $*.shbin)
+	$(eval DEPSFILE := $(DEPSDIR)/$*.shbin.d)
+	echo "$(CURBIN).o: $< $1" > $(DEPSFILE)
+	echo "extern const u8" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" > `(echo $(CURBIN) | tr . _)`.h
+	echo "extern const u8" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];" >> `(echo $(CURBIN) | tr . _)`.h
+	echo "extern const u32" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";" >> `(echo $(CURBIN) | tr . _)`.h
+	picasso -o $(CURBIN) $1
+	bin2s $(CURBIN) | $(AS) -o $*.shbin.o
+endef
+
+%.shbin.o %_shbin.h : %.v.pica %.g.pica
+	@echo $(notdir $^)
+	@$(call shader-as,$^)
+
+%.shbin.o %_shbin.h : %.v.pica
+	@echo $(notdir $<)
+	@$(call shader-as,$<)
+
+%.shbin.o %_shbin.h : %.shlist
+	@echo $(notdir $<)
+	@$(call shader-as,$(foreach file,$(shell cat $<),$(dir $<)$(file)))
+
+#---------------------------------------------------------------------------------
+%.t3x	%.h	:	%.t3s
+#---------------------------------------------------------------------------------
+	@echo $(notdir $<)
+	@tex3ds -i $< -H $*.h -d $*.d -o $*.t3x
 
 -include $(DEPSDIR)/*.d
 
