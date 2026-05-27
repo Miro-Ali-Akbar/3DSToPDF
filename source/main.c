@@ -836,6 +836,13 @@ static void close_pdf(void) {
 u32 __ctru_heap_size        = 0x800000;  // 8MB
 u32 __ctru_linear_heap_size = 0xA00000;  // 10MB
 
+// Runs after __appInit (SD mounted) but before main().
+// If this file appears on the SD card, initSystem completed successfully.
+__attribute__((constructor)) static void pre_main_diag(void) {
+  FILE *f = fopen("sdmc:/3dsToPdf_pre.txt", "w");
+  if (f) { fputs("pre-main OK\n", f); fclose(f); }
+}
+
 // main
 typedef enum { STATE_HOME, STATE_READER } State;
 
