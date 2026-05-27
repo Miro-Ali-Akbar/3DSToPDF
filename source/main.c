@@ -833,16 +833,33 @@ static void close_pdf(void) {
 // main
 typedef enum { STATE_HOME, STATE_READER } State;
 
+static void dbg(const char *msg) {
+  consoleClear();
+  printf("[3dsToPdf]\n%s\n", msg);
+  gfxFlushBuffers();
+  gfxSwapBuffers();
+  gfxFlushBuffers();
+  gfxSwapBuffers();
+}
+
 int main(int argc, char *argv[]) {
   gfxInitDefault();
+  consoleInit(GFX_BOTTOM, NULL);
 
+  dbg("MuPDF init...");
   ctx = fz_new_context(NULL, NULL, 16 * 1024 * 1024);
-  if (!ctx)
-    goto end;
+  if (!ctx) { dbg("ERROR: fz_new_context failed"); svcSleepThread(3000000000LL); goto end; }
+
+  dbg("Registering handlers...");
   fz_register_document_handlers(ctx);
 
-  svcSleepThread(500000000LL); // 500ms - give SD card time to mount in CIA context
+  dbg("Waiting for SD card...");
+  svcSleepThread(500000000LL);
+
+  dbg("Scanning PDFs...");
   scan_pdfs();
+
+  dbg("Loading progress...");
   progress_load();
   qsort(g_ent, g_nent, sizeof(PDFEntry), ent_cmp);
 
@@ -853,7 +870,7 @@ int main(int argc, char *argv[]) {
   int touch_sx = 0, touch_sy = 0;
   int touch_pan_sx = 0, touch_pan_sy = 0;
 
-  // home init
+  // home init — reinitialise console for home screen use
   clear_top(0x18, 0x18, 0x40);
   home_refresh();
 
