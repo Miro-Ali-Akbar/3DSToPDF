@@ -830,6 +830,12 @@ static void close_pdf(void) {
   g_active_idx = -1;
 }
 
+// Shrink heaps to fit within 64MB alongside ~38MB of MuPDF code.
+// Default values (24MB heap + 32MB linear) overflow the address space.
+u32 __heap_size       = 0x800000;  // 8MB
+u32 __linear_heap_size = 0xA00000; // 10MB
+// Budget: 38MB code + 8MB heap + 10MB linear + 0.25MB stack ≈ 56MB < 64MB
+
 // main
 typedef enum { STATE_HOME, STATE_READER } State;
 
@@ -847,7 +853,7 @@ int main(int argc, char *argv[]) {
   consoleInit(GFX_BOTTOM, NULL);
 
   dbg("MuPDF init...");
-  ctx = fz_new_context(NULL, NULL, 16 * 1024 * 1024);
+  ctx = fz_new_context(NULL, NULL, 4 * 1024 * 1024);
   if (!ctx) { dbg("ERROR: fz_new_context failed"); svcSleepThread(3000000000LL); goto end; }
 
   dbg("Registering handlers...");

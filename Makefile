@@ -89,7 +89,7 @@ CFLAGS	    +=	$(INCLUDE) -D__3DS__ -D_GNU_SOURCE=1
 CXXFLAGS    := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
 
 ASFLAGS     := -g $(ARCH)
-LDFLAGS      = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+LDFLAGS      = -specs=3ds_heap.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 LIBS        := -lmupdf -lmupdf-third -lcitro2d -lcitro3d -lctru -lm
 
@@ -218,7 +218,17 @@ all: $(OUTPUT).elf $(OUTPUT).smdh $(OUTPUT).3dsx
 
 cia: $(OUTPUT).cia
 
-$(OUTPUT).elf	:	$(OFILES)
+CRT0_SRC := /opt/devkitpro/devkitARM/arm-none-eabi/lib/armv6k/fpu/3dsx_crt0.o
+
+# Local copy of crt0 with heap-size symbols weakened so our C definitions win
+3dsx_crt0.o: $(CRT0_SRC)
+	arm-none-eabi-objcopy --weaken-symbol=__heap_size --weaken-symbol=__linear_heap_size $< $@
+
+# Custom specs file that uses our local weakened crt0 (absolute path bypasses GCC's search)
+3ds_heap.specs: 3dsx_crt0.o
+	@printf '%%include <3dsx.specs>\n*startfile:\n%s crti%%O%%s crtbegin%%O%%s\n' "$(CURDIR)/3dsx_crt0.o" > $@
+
+$(OUTPUT).elf	:	$(OFILES) 3ds_heap.specs
 
 $(OUTPUT).cia	:	$(OUTPUT).elf $(OUTPUT).smdh
 	@$(BANNERTOOL) makebanner -i "../app/banner.png" -a "../app/Banneraudio.wav" -o "../app/banner.bin"
