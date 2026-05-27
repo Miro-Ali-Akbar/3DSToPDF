@@ -12,7 +12,7 @@ Option:
   FreeProductCode         : true # Removes limitations on ProductCode
   MediaFootPadding        : false # If true CCI files are created with padding
   EnableCrypt             : false # Enables encryption for NCCH and CIA
-  EnableCompress          : true # Compresses where applicable (currently only exefs:/.code)
+  EnableCompress          : false # BLZ compression produces corrupt output on this toolchain
 
 AccessControlInfo:
   CoreVersion                   : 1

@@ -1,5 +1,7 @@
 *.o
 *.pdf
+*.cia
+*.bin
 
 .cache/
 build/
