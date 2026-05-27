@@ -830,14 +830,19 @@ static void close_pdf(void) {
   g_active_idx = -1;
 }
 
-// Shrink heaps to fit within 64MB alongside ~38MB of MuPDF code.
-// Default values (24MB heap + 32MB linear) overflow the address space.
-u32 __heap_size       = 0x800000;  // 8MB
-u32 __linear_heap_size = 0xA00000; // 10MB
-// Budget: 38MB code + 8MB heap + 10MB linear + 0.25MB stack ≈ 56MB < 64MB
+// These override the weak symbols in libctru's allocateHeaps.o.
+// __system_allocateHeaps reads these; if non-zero, skips auto-calculation.
+// MuPDF's text section is ~38MB, leaving ~24MB in the 64MB budget.
+u32 __ctru_heap_size        = 0x800000;  // 8MB
+u32 __ctru_linear_heap_size = 0xA00000;  // 10MB
 
 // main
 typedef enum { STATE_HOME, STATE_READER } State;
+
+static void stage_log(const char *msg) {
+  FILE *f = fopen("sdmc:/3dsToPdf_diag.txt", "a");
+  if (f) { fputs(msg, f); fputc('\n', f); fclose(f); }
+}
 
 static void dbg(const char *msg) {
   consoleClear();
@@ -849,10 +854,17 @@ static void dbg(const char *msg) {
 }
 
 int main(int argc, char *argv[]) {
+  stage_log("main() started");
+
   gfxInitDefault();
+  stage_log("gfxInitDefault OK");
+
   consoleInit(GFX_BOTTOM, NULL);
+  stage_log("consoleInit OK");
 
   dbg("MuPDF init...");
+  stage_log("dbg called");
+
   ctx = fz_new_context(NULL, NULL, 4 * 1024 * 1024);
   if (!ctx) { dbg("ERROR: fz_new_context failed"); svcSleepThread(3000000000LL); goto end; }
 
