@@ -1,7 +1,7 @@
 BasicInfo:
   Title                       : "3DS PDF Reader"
   ProductCode                 : "CTR-P-PDFR"
-  Logo                        : Homebrew # Nintendo / Licensed / Distributed / iQue / iQueForSystem
+  #Logo                       : Homebrew # omitted: no logo file provided
 
 TitleInfo:
   UniqueId                    : 0xF89AB
