@@ -1,4 +1,5 @@
 #include <3ds.h>
+#include <3ds/allocator/mappable.h>
 #include <dirent.h>
 #include <math.h>
 #include <mupdf/fitz.h>
@@ -830,14 +831,26 @@ static void close_pdf(void) {
   g_active_idx = -1;
 }
 
-// These override the weak symbols in libctru's allocateHeaps.o.
-// __system_allocateHeaps reads these; if non-zero, skips auto-calculation.
-// MuPDF's text section is ~38MB, leaving ~24MB in the 64MB budget.
-u32 __ctru_heap_size        = 0x800000;  // 8MB
-u32 __ctru_linear_heap_size = 0xA00000;  // 10MB
+// Heap sizes: 8MB regular + 10MB linear, leaving ~44MB for 38MB MuPDF code.
+u32 __ctru_heap_size        = 0x800000;
+u32 __ctru_linear_heap_size = 0xA00000;
 
-// Runs after __appInit (SD mounted) but before main().
-// If this file appears on the SD card, initSystem completed successfully.
+// Override weak __system_allocateHeaps to skip svcGetResourceLimit, which
+// calls svcBreak on failure. The libctru default crashes on retail hardware
+// when the resource limit query returns an error before allocating heaps.
+extern u32 __ctru_heap, __ctru_linear_heap;
+extern u32 fake_heap_start, fake_heap_end;
+
+void __system_allocateHeaps(void) {
+    svcControlMemory(&__ctru_heap, 0x08000000, 0, __ctru_heap_size,
+                     MEMOP_ALLOC, MEMPERM_READWRITE);
+    svcControlMemory(&__ctru_linear_heap, 0, 0, __ctru_linear_heap_size,
+                     MEMOP_ALLOC_LINEAR, MEMPERM_READWRITE);
+    mappableInit(0x10000000, 0x14000000);
+    fake_heap_start = __ctru_heap;
+    fake_heap_end   = __ctru_heap + __ctru_heap_size;
+}
+
 __attribute__((constructor)) static void pre_main_diag(void) {
   FILE *f = fopen("sdmc:/3dsToPdf_pre.txt", "w");
   if (f) { fputs("pre-main OK\n", f); fclose(f); }
