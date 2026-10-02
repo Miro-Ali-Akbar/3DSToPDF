@@ -7,19 +7,23 @@
 #include <string.h>
 #include <sys/stat.h>
 
+// Most memory goes to the regular heap (MuPDF store and page pixmaps). The
+// linear heap only holds the framebuffers, so keep it small. libctru gives the
+// regular heap whatever remains.
+u32 __ctru_linear_heap_size = 8 * 1024 * 1024;
+
 // display constants
 #define SCREEN_W 400
 #define BSCREEN_W 320
 #define SCREEN_H 240
 
 // Book mode: both screens show one page each, rotated 90 degrees clockwise, so
-// the console is held turned left like a book (top screen = left page). Pages
-// are fit into the bottom screen's portrait size so both pages match.
+// the console is held turned left like a book (top screen = left page). At
+// zoom 1 pages fit the bottom screen's portrait size so both pages match.
 #define BOOK_W SCREEN_H
 #define BOOK_H BSCREEN_W
-#define BOOK_BG 0x30
 
-// Dashboard: 32 px at the bottom of the bottom screen in reader mode.
+// Reader dashboard: 32 px at the bottom of the bottom screen.
 // Top 12px = page indicator row; bottom 20px = zoom slider row.
 #define DASHBOARD_H 32
 #define BCONTENT_H (SCREEN_H - DASHBOARD_H)
@@ -29,22 +33,17 @@
 #define SLIDER_X0 8
 #define SLIDER_X1 (BSCREEN_W - 8)
 
-// Console: 40 cols × 30 rows, each character is 8×8 px.
-#define CON_W 40
-#define CON_H 30
-#define CHAR_PX 8
-
-// Home screen: 2-row entries starting at row 4 of the console.
-// home_draw() outputs: row0 blank, row1 title, row2 blank, row3 subtitle →
-// entries at row4.
-#define HOME_FIRST_ROW 4
-#define HOME_ROW_SPAN 2
-#define HOME_MAX_VIS ((CON_H - HOME_FIRST_ROW - 2) / HOME_ROW_SPAN) // 13
+// Library (home) list on the top screen
+#define LIB_HEADER_H 32
+#define LIB_FOOTER_H 18
+#define LIB_ROW_H 38
+#define LIB_VIS ((SCREEN_H - LIB_HEADER_H - LIB_FOOTER_H) / LIB_ROW_H) // 5
 
 // reader constants
 #define MIN_ZOOM 0.5f
 #define MAX_ZOOM 4.0f
 #define ZOOM_STEP 0.1f
+#define BOOK_ZOOM_STEP 0.25f
 #define PAN_SPEED 8
 #define CPAD_DEAD 20
 #define CPAD_SCALE 0.06f
@@ -55,157 +54,158 @@
 #define MAX_PDFS 64
 #define NAME_LEN 128
 
-// 8x8 bitmap font for printable ASCII (bit7 = leftmost pixel per row).
-static const u8 FONT8[128][8] = {
-    [' '] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    ['!'] = {0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x00},
-    ['-'] = {0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00},
-    ['/'] = {0x02, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x40, 0x00},
-    [':'] = {0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00},
-    ['('] = {0x0C, 0x18, 0x30, 0x30, 0x30, 0x18, 0x0C, 0x00},
-    [')'] = {0x30, 0x18, 0x0C, 0x0C, 0x0C, 0x18, 0x30, 0x00},
-    ['%'] = {0xC6, 0xCC, 0x18, 0x30, 0x60, 0xCC, 0xC6, 0x00},
-    ['0'] = {0x38, 0x6C, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00},
-    ['1'] = {0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00},
-    ['2'] = {0x7C, 0xC6, 0x06, 0x1C, 0x70, 0xC6, 0xFE, 0x00},
-    ['3'] = {0x7C, 0xC6, 0x06, 0x3C, 0x06, 0xC6, 0x7C, 0x00},
-    ['4'] = {0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x0C, 0x00},
-    ['5'] = {0xFE, 0xC0, 0xFC, 0x06, 0x06, 0xC6, 0x7C, 0x00},
-    ['6'] = {0x3C, 0x60, 0xC0, 0xFC, 0xC6, 0xC6, 0x7C, 0x00},
-    ['7'] = {0xFE, 0xC6, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00},
-    ['8'] = {0x7C, 0xC6, 0xC6, 0x7C, 0xC6, 0xC6, 0x7C, 0x00},
-    ['9'] = {0x7C, 0xC6, 0xC6, 0x7E, 0x06, 0x0C, 0x78, 0x00},
-    ['A'] = {0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00},
-    ['B'] = {0x7C, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x7C, 0x00},
-    ['C'] = {0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00},
-    ['D'] = {0x78, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0x78, 0x00},
-    ['E'] = {0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x7E, 0x00},
-    ['F'] = {0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x60, 0x00},
-    ['G'] = {0x3C, 0x66, 0x60, 0x6E, 0x66, 0x66, 0x3C, 0x00},
-    ['H'] = {0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00},
-    ['I'] = {0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
-    ['J'] = {0x1E, 0x0C, 0x0C, 0x0C, 0x0C, 0x6C, 0x38, 0x00},
-    ['K'] = {0x66, 0x6C, 0x78, 0x70, 0x78, 0x6C, 0x66, 0x00},
-    ['L'] = {0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00},
-    ['M'] = {0xC6, 0xEE, 0xFE, 0xD6, 0xC6, 0xC6, 0xC6, 0x00},
-    ['N'] = {0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00},
-    ['O'] = {0x38, 0x6C, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00},
-    ['P'] = {0x7C, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x00},
-    ['Q'] = {0x38, 0x6C, 0xC6, 0xC6, 0xCE, 0x6C, 0x3A, 0x00},
-    ['R'] = {0x7C, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0x66, 0x00},
-    ['S'] = {0x3C, 0x66, 0x60, 0x3C, 0x06, 0x66, 0x3C, 0x00},
-    ['T'] = {0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00},
-    ['U'] = {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
-    ['V'] = {0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00},
-    ['W'] = {0xC6, 0xC6, 0xC6, 0xD6, 0xFE, 0xEE, 0xC6, 0x00},
-    ['X'] = {0xC6, 0x6C, 0x38, 0x10, 0x38, 0x6C, 0xC6, 0x00},
-    ['Y'] = {0x66, 0x66, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x00},
-    ['Z'] = {0x7E, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x7E, 0x00},
-    ['a'] = {0x00, 0x00, 0x3C, 0x06, 0x3E, 0x66, 0x3E, 0x00},
-    ['b'] = {0x60, 0x60, 0x7C, 0x66, 0x66, 0x66, 0x7C, 0x00},
-    ['c'] = {0x00, 0x00, 0x3C, 0x60, 0x60, 0x60, 0x3C, 0x00},
-    ['d'] = {0x06, 0x06, 0x3E, 0x66, 0x66, 0x66, 0x3E, 0x00},
-    ['e'] = {0x00, 0x00, 0x3C, 0x66, 0x7E, 0x60, 0x3C, 0x00},
-    ['f'] = {0x1C, 0x30, 0x30, 0x7C, 0x30, 0x30, 0x30, 0x00},
-    ['g'] = {0x00, 0x00, 0x3E, 0x66, 0x66, 0x3E, 0x06, 0x3C},
-    ['h'] = {0x60, 0x60, 0x6C, 0x76, 0x66, 0x66, 0x66, 0x00},
-    ['i'] = {0x18, 0x00, 0x38, 0x18, 0x18, 0x18, 0x3C, 0x00},
-    ['j'] = {0x06, 0x00, 0x06, 0x06, 0x06, 0x06, 0x66, 0x3C},
-    ['k'] = {0x60, 0x60, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0x00},
-    ['l'] = {0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
-    ['m'] = {0x00, 0x00, 0xCC, 0xFE, 0xD6, 0xC6, 0xC6, 0x00},
-    ['n'] = {0x00, 0x00, 0x7C, 0x66, 0x66, 0x66, 0x66, 0x00},
-    ['o'] = {0x00, 0x00, 0x3C, 0x66, 0x66, 0x66, 0x3C, 0x00},
-    ['p'] = {0x00, 0x00, 0x7C, 0x66, 0x66, 0x7C, 0x60, 0x60},
-    ['q'] = {0x00, 0x00, 0x3E, 0x66, 0x66, 0x3E, 0x06, 0x06},
-    ['r'] = {0x00, 0x00, 0x6C, 0x76, 0x60, 0x60, 0x60, 0x00},
-    ['s'] = {0x00, 0x00, 0x3C, 0x60, 0x3C, 0x06, 0x7C, 0x00},
-    ['t'] = {0x30, 0x30, 0x7C, 0x30, 0x30, 0x30, 0x1C, 0x00},
-    ['u'] = {0x00, 0x00, 0x66, 0x66, 0x66, 0x66, 0x3E, 0x00},
-    ['v'] = {0x00, 0x00, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00},
-    ['w'] = {0x00, 0x00, 0xC6, 0xC6, 0xD6, 0xFE, 0x6C, 0x00},
-    ['x'] = {0x00, 0x00, 0x66, 0x3C, 0x18, 0x3C, 0x66, 0x00},
-    ['y'] = {0x00, 0x00, 0x66, 0x66, 0x66, 0x3E, 0x06, 0x3C},
-    ['z'] = {0x00, 0x00, 0x7E, 0x0C, 0x18, 0x30, 0x7E, 0x00},
-};
+// palette (0xRRGGBB)
+#define C_BG 0x15171C
+#define C_PANEL 0x1F232B
+#define C_ROW 0x1A1D23
+#define C_GUTTER 0x2A2D33
+#define C_TRACK 0x3A404C
+#define C_ACCENT 0x3D7BFF
+#define C_DONE 0x4CC38A
+#define C_TEXT 0xF0F2F5
+#define C_DIM 0x8A93A3
 
-// Draw a single pixel into the bottom framebuffer (column-major BGR8 layout).
-static inline void fb_pix(u8 *fb, int x, int y, u8 r, u8 g, u8 b) {
-  if (x < 0 || x >= BSCREEN_W || y < 0 || y >= SCREEN_H)
+// CP437 glyphs from the libctru console font
+#define GL_UP "\x1e"
+#define GL_DOWN "\x1f"
+
+// libctru's 8x8 console font: 256 glyphs, 8 bytes each, bit7 = leftmost pixel.
+extern const u8 default_font_bin[];
+
+// drawing
+// A Canvas is one screen's back buffer seen in logical coordinates. The 3DS
+// framebuffer is stored column-major and bottom-up (BGR8), so a logical pixel
+// (x, y) lives at o0 + x * sx + y * sy. Rotated canvases (book mode) are
+// portrait: logical x runs down the physical screen and logical y runs from
+// the physical right edge to the left.
+typedef struct {
+  u8 *fb;
+  int w, h;
+  int o0, sx, sy;
+} Canvas;
+
+static Canvas canvas_get(gfxScreen_t scr, bool rotated) {
+  int sw = scr == GFX_TOP ? SCREEN_W : BSCREEN_W;
+  Canvas c = {gfxGetFramebuffer(scr, GFX_LEFT, NULL, NULL)};
+  if (rotated) {
+    c.w = SCREEN_H;
+    c.h = sw;
+    c.o0 = ((sw - 1) * SCREEN_H + SCREEN_H - 1) * 3;
+    c.sx = -3;
+    c.sy = -SCREEN_H * 3;
+  } else {
+    c.w = sw;
+    c.h = SCREEN_H;
+    c.o0 = (SCREEN_H - 1) * 3;
+    c.sx = SCREEN_H * 3;
+    c.sy = -3;
+  }
+  return c;
+}
+
+static inline void put_px(const Canvas *c, int x, int y, u32 col) {
+  if (x < 0 || x >= c->w || y < 0 || y >= c->h)
     return;
-  u32 o = ((u32)x * SCREEN_H + (SCREEN_H - 1 - y)) * 3;
-  fb[o] = b;
-  fb[o + 1] = g;
-  fb[o + 2] = r;
+  u8 *d = c->fb + c->o0 + x * c->sx + y * c->sy;
+  d[0] = col;
+  d[1] = col >> 8;
+  d[2] = col >> 16;
 }
 
-// Draw text using FONT8 into the bottom framebuffer.
-static void draw_text_b(u8 *fb, int x, int y, const char *s, u8 r, u8 g, u8 b) {
-  for (; *s; s++, x += 8) {
-    u8 c = (u8)*s;
-    if (c >= 128)
-      continue;
-    const u8 *gl = FONT8[c];
+static void fill_rect(const Canvas *c, int x, int y, int w, int h, u32 col) {
+  for (int yy = y; yy < y + h; yy++)
+    for (int xx = x; xx < x + w; xx++)
+      put_px(c, xx, yy, col);
+}
+
+static void fill_all(const Canvas *c, u32 col) {
+  u8 b = col, g = col >> 8, r = col >> 16;
+  u8 *d = c->fb;
+  for (int i = 0; i < c->w * c->h; i++, d += 3) {
+    d[0] = b;
+    d[1] = g;
+    d[2] = r;
+  }
+}
+
+static int text_w(const char *s, int scale) { return (int)strlen(s) * 8 * scale; }
+
+static void draw_text(const Canvas *c, int x, int y, const char *s, u32 col,
+                      int scale) {
+  for (; *s; s++, x += 8 * scale) {
+    const u8 *gl = default_font_bin + (u8)*s * 8;
     for (int row = 0; row < 8; row++)
-      for (int col = 0; col < 8; col++)
-        if (gl[row] & (0x80 >> col))
-          fb_pix(fb, x + col, y + row, r, g, b);
+      for (int bit = 0; bit < 8; bit++)
+        if (gl[row] & (0x80 >> bit))
+          fill_rect(c, x + bit * scale, y + row * scale, scale, scale, col);
   }
 }
 
-// Draw dashboard: page info row + zoom slider row.
-// page1 = 1-indexed current page, total = total pages, z = current zoom.
-static void draw_dashboard(u8 *fb, int page1, int total, float z) {
-  // Dark background
-  for (int y = BCONTENT_H; y < SCREEN_H; y++)
-    for (int x = 0; x < BSCREEN_W; x++)
-      fb_pix(fb, x, y, 0x22, 0x22, 0x22);
+static void draw_text_centered(const Canvas *c, int cx, int y, const char *s,
+                               u32 col, int scale) {
+  draw_text(c, cx - text_w(s, scale) / 2, y, s, col, scale);
+}
 
-  // Help text (two lines, dimmed grey, just above the dashboard)
-  draw_text_b(fb, 4, BCONTENT_H - 18, "D-pad/circle/touch: pan  L/R: page",
-              0x70, 0x70, 0x70);
-  draw_text_b(fb, 4, BCONTENT_H - 9, "Y:zoom  X:fit  SELECT:book  START:menu",
-              0x70, 0x70, 0x70);
-
-  // Separator line between page row and slider row
-  for (int x = 0; x < BSCREEN_W; x++)
-    fb_pix(fb, x, DASH_SLIDER_Y - 1, 0x50, 0x50, 0x50);
-
-  // --- Page row: "3/12 25%" right-aligned, tap to jump ---
-  char buf[24];
-  int pct = total > 0 ? page1 * 100 / total : 0;
-  snprintf(buf, sizeof(buf), "%d/%d %d%%", page1, total, pct);
-  draw_text_b(fb, 4, DASH_PAGE_Y + 2, "tap: go to page", 0x70, 0x70, 0x70);
-  draw_text_b(fb, BSCREEN_W - (int)strlen(buf) * 8 - 4, DASH_PAGE_Y + 2, buf,
-              0xFF, 0xFF, 0xFF);
-
-  // --- Zoom slider row ---
-  int range = SLIDER_X1 - SLIDER_X0;
-  int thumb_x = SLIDER_X0 +
-                (int)(((z - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * range + 0.5f);
-  if (thumb_x < SLIDER_X0)
-    thumb_x = SLIDER_X0;
-  if (thumb_x > SLIDER_X1)
-    thumb_x = SLIDER_X1;
-  int tc_y = DASH_SLIDER_Y +
-             (SCREEN_H - DASH_SLIDER_Y) / 2; // vertical center of slider row
-
-  // Track (grey)
-  for (int x = SLIDER_X0; x <= SLIDER_X1; x++) {
-    fb_pix(fb, x, tc_y - 1, 0x60, 0x60, 0x60);
-    fb_pix(fb, x, tc_y, 0x60, 0x60, 0x60);
-    fb_pix(fb, x, tc_y + 1, 0x60, 0x60, 0x60);
+// Copy s into out, shortened with "..." to at most max_chars characters.
+static void ellipsize(char *out, size_t out_sz, const char *s, int max_chars) {
+  if ((int)strlen(s) <= max_chars) {
+    snprintf(out, out_sz, "%s", s);
+    return;
   }
-  // Filled portion (blue)
-  for (int x = SLIDER_X0; x <= thumb_x; x++) {
-    fb_pix(fb, x, tc_y - 1, 0x40, 0x90, 0xFF);
-    fb_pix(fb, x, tc_y, 0x40, 0x90, 0xFF);
-    fb_pix(fb, x, tc_y + 1, 0x40, 0x90, 0xFF);
+  snprintf(out, out_sz, "%.*s...", max_chars > 3 ? max_chars - 3 : 0, s);
+}
+
+static void draw_bar(const Canvas *c, int x, int y, int w, int h, float frac,
+                     u32 col) {
+  if (frac < 0.f)
+    frac = 0.f;
+  if (frac > 1.f)
+    frac = 1.f;
+  fill_rect(c, x, y, w, h, C_TRACK);
+  fill_rect(c, x, y, (int)(w * frac + 0.5f), h, col);
+}
+
+typedef struct {
+  int x, y, w, h;
+} Rect;
+
+static bool rect_hit(Rect r, int px, int py) {
+  return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h;
+}
+
+static void draw_button(const Canvas *c, Rect r, const char *label, u32 bg,
+                        int scale) {
+  fill_rect(c, r.x, r.y, r.w, r.h, bg);
+  draw_text_centered(c, r.x + r.w / 2, r.y + (r.h - 8 * scale) / 2, label,
+                     C_TEXT, scale);
+}
+
+// Copy a page pixmap into a canvas starting at pixmap offset (vx, vy). Pages
+// smaller than the canvas are centred horizontally, and vertically too when
+// center_y is set.
+static void blit_page(const Canvas *c, fz_pixmap *pix, int vx, int vy,
+                      bool center_y) {
+  fill_all(c, C_GUTTER);
+  if (!pix)
+    return;
+  int cols = pix->w - vx, rows = pix->h - vy;
+  if (cols > c->w)
+    cols = c->w;
+  if (rows > c->h)
+    rows = c->h;
+  if (cols <= 0 || rows <= 0)
+    return;
+  int dx = pix->w < c->w ? (c->w - pix->w) / 2 : 0;
+  int dy = center_y && pix->h < c->h ? (c->h - pix->h) / 2 : 0;
+  for (int y = 0; y < rows; y++) {
+    const u8 *s = pix->samples + (size_t)(vy + y) * pix->stride + vx * pix->n;
+    u8 *d = c->fb + c->o0 + dx * c->sx + (dy + y) * c->sy;
+    for (int x = 0; x < cols; x++, s += pix->n, d += c->sx) {
+      d[0] = s[2];
+      d[1] = s[1];
+      d[2] = s[0];
+    }
   }
-  // Thumb (white rectangle)
-  for (int y = DASH_SLIDER_Y + 2; y < SCREEN_H - 2; y++)
-    for (int x = thumb_x - 4; x <= thumb_x + 4; x++)
-      fb_pix(fb, x, y, 0xFF, 0xFF, 0xFF);
 }
 
 // PDF entry / progress
@@ -328,9 +328,8 @@ static fz_pixmap *do_render(fz_context *rctx, int page_num, float z,
     float pw = b.x1 - b.x0, ph = b.y1 - b.y0;
     float fs;
     if (book) {
-      // Whole page fits the portrait book canvas; zoom does not apply.
+      // At zoom 1 the whole page fits the portrait book canvas.
       fs = (pw > 0.f && ph > 0.f) ? fminf(BOOK_W / pw, BOOK_H / ph) : 1.f;
-      z = 1.f;
     } else {
       fs = (pw > 0.f) ? (float)SCREEN_W / pw : 1.f;
     }
@@ -544,14 +543,26 @@ static void reload_all(void) {
 }
 
 // pan
+// Book mode pans both pages together over a BOOK_W x BOOK_H window; normal
+// mode pans the current page under the top screen.
 static void clamp_pan(void) {
-  fz_pixmap *pix = slots[SLOT_CUR].pix;
-  if (!pix) {
-    pan_x = pan_y = 0;
-    return;
+  int pw = 0, ph = 0, vw = SCREEN_W, vh = SCREEN_H;
+  if (book_mode) {
+    vw = BOOK_W;
+    vh = BOOK_H;
+    for (int i = SLOT_CUR; i <= SLOT_CUR + 1; i++)
+      if (slots[i].pix) {
+        if (slots[i].pix->w > pw)
+          pw = slots[i].pix->w;
+        if (slots[i].pix->h > ph)
+          ph = slots[i].pix->h;
+      }
+  } else if (slots[SLOT_CUR].pix) {
+    pw = slots[SLOT_CUR].pix->w;
+    ph = slots[SLOT_CUR].pix->h;
   }
-  int mx = pix->w > SCREEN_W ? pix->w - SCREEN_W : 0;
-  int my = pix->h > SCREEN_H ? pix->h - SCREEN_H : 0;
+  int mx = pw > vw ? pw - vw : 0;
+  int my = ph > vh ? ph - vh : 0;
   if (pan_x < 0)
     pan_x = 0;
   if (pan_x > mx)
@@ -568,121 +579,6 @@ static int get_max_pan_y(void) {
     return 0;
   int m = pix->h - SCREEN_H;
   return m > 0 ? m : 0;
-}
-
-// blit / refresh
-static void blit(u8 *fb, int sw, int sh_content, fz_pixmap *pix, int vx,
-                 int vy) {
-  memset(fb, 0xFF, (u32)sw * SCREEN_H * 3);
-  if (!pix)
-    return;
-  int rw = pix->w, rh = pix->h, n = pix->n;
-  int cols = rw - vx;
-  if (cols > sw)
-    cols = sw;
-  if (cols <= 0)
-    return;
-  int rows = rh - vy;
-  if (rows > sh_content)
-    rows = sh_content;
-  if (rows <= 0)
-    return;
-  int dx = (cols < sw) ? (sw - cols) / 2 : 0;
-  for (int y = 0; y < rows; y++)
-    for (int x = 0; x < cols; x++) {
-      const u8 *s = pix->samples + ((vy + y) * rw + (vx + x)) * n;
-      int sx = dx + x, sy = y;
-      u32 o = ((u32)sx * SCREEN_H + (SCREEN_H - 1 - sy)) * 3;
-      fb[o] = s[2];
-      fb[o + 1] = s[1];
-      fb[o + 2] = s[0];
-    }
-}
-
-// Draw a page rotated 90 degrees clockwise, centred on a screen of width sw.
-// The page's top edge lands on the screen's right edge and its left edge on
-// the screen's top edge.
-static void blit_book(u8 *fb, int sw, fz_pixmap *pix) {
-  memset(fb, BOOK_BG, (u32)sw * SCREEN_H * 3);
-  if (!pix)
-    return;
-  int cols = pix->w < SCREEN_H ? pix->w : SCREEN_H;
-  int rows = pix->h < sw ? pix->h : sw;
-  int du = (SCREEN_H - cols) / 2, dv = (sw - rows) / 2;
-  for (int v = 0; v < rows; v++) {
-    const u8 *s = pix->samples + (size_t)v * pix->stride;
-    // Framebuffer column x = sw-1-(dv+v); row y = du+u maps to SCREEN_H-1-y.
-    u8 *d = fb + ((u32)(sw - 1 - (dv + v)) * SCREEN_H + (SCREEN_H - 1 - du)) * 3;
-    for (int u = 0; u < cols; u++, s += pix->n, d -= 3) {
-      d[0] = s[2];
-      d[1] = s[1];
-      d[2] = s[0];
-    }
-  }
-}
-
-// Draw text into a book-mode screen, in the same rotated frame as blit_book:
-// (u, v) are portrait coordinates, u across the page and v down it.
-static void draw_text_book(u8 *fb, int sw, int u, int v, const char *s) {
-  for (; *s; s++, u += 8) {
-    u8 c = (u8)*s;
-    if (c >= 128)
-      continue;
-    const u8 *gl = FONT8[c];
-    for (int row = 0; row < 8; row++)
-      for (int col = 0; col < 8; col++) {
-        int pu = u + col, pv = v + row;
-        if (!(gl[row] & (0x80 >> col)) || pu < 0 || pu >= SCREEN_H || pv < 0 ||
-            pv >= sw)
-          continue;
-        u8 *d = fb + ((u32)(sw - 1 - pv) * SCREEN_H + (SCREEN_H - 1 - pu)) * 3;
-        d[0] = d[1] = d[2] = 0xA0;
-      }
-  }
-}
-
-static void refresh(void) {
-  fz_pixmap *pix = slots[SLOT_CUR].pix;
-  for (int i = 0; i < 2; i++) {
-    gspWaitForVBlank();
-    u8 *top = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
-    u8 *bot = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
-    if (book_mode) {
-      blit_book(top, SCREEN_W, pix);
-      blit_book(bot, BSCREEN_W, slots[SLOT_CUR + 1].pix);
-      // Page numbers sit in the top screen's margin below the left page.
-      char buf[40];
-      if (cur_page + 1 < total_pages)
-        snprintf(buf, sizeof(buf), "%d-%d / %d", cur_page + 1, cur_page + 2,
-                 total_pages);
-      else
-        snprintf(buf, sizeof(buf), "%d / %d", cur_page + 1, total_pages);
-      draw_text_book(top, SCREEN_W, (BOOK_W - (int)strlen(buf) * 8) / 2,
-                     SCREEN_W - 14, buf);
-      gfxFlushBuffers();
-      gfxSwapBuffers();
-      continue;
-    }
-    blit(top, SCREEN_W, SCREEN_H, pix, pan_x, pan_y);
-    memset(bot, 0x1A, (u32)BSCREEN_W * SCREEN_H * 3);
-    draw_dashboard(bot, cur_page + 1, total_pages, zoom);
-    gfxFlushBuffers();
-    gfxSwapBuffers();
-  }
-}
-
-// Clear top screen to a solid colour (used in home mode).
-static void clear_top(u8 r, u8 g, u8 b) {
-  for (int i = 0; i < 2; i++) {
-    u8 *fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
-    for (int p = 0; p < SCREEN_W * SCREEN_H; p++) {
-      fb[p * 3] = b;
-      fb[p * 3 + 1] = g;
-      fb[p * 3 + 2] = r;
-    }
-    gfxSwapBuffers();
-    gspWaitForVBlank();
-  }
 }
 
 // page navigation helpers
@@ -737,106 +633,43 @@ static void book_prev(void) {
     slot_render_sync(SLOT_CUR + 1, cur_page + 1);
 }
 
-// home screen
+// app state
+typedef enum { STATE_HOME, STATE_READER, STATE_QUIT } State;
+static State g_state = STATE_HOME;
+
+// Touch tracking for the reader. hidTouchRead returns (0, 0) once the stylus
+// lifts, so the last held position is kept for tap detection on release.
+static struct {
+  bool held;
+  int sx, sy;         // where the touch started
+  int lx, ly;         // last position while held
+  int pan_sx, pan_sy; // pan offsets when the touch started
+} g_touch;
+
+// library state
 static int home_sel = 0;    // selected entry index
-static int home_scroll = 0; // top of visible window
-static char home_msg[CON_W]; // one-line status shown above the hint line
+static int home_scroll = 0; // first visible row
+static char home_msg[64];   // status line on the bottom screen
+
+static const Rect BTN_UP = {12, 104, 64, 52};
+static const Rect BTN_DOWN = {84, 104, 64, 52};
+static const Rect BTN_OPEN = {156, 104, 152, 52};
+static const Rect BTN_BOOK = {12, 168, 296, 36};
 
 static void home_clamp_scroll(void) {
-  int max_scroll = g_nent - HOME_MAX_VIS;
-  if (max_scroll < 0)
-    max_scroll = 0;
-  if (home_scroll < 0)
-    home_scroll = 0;
-  if (home_scroll > max_scroll)
-    home_scroll = max_scroll;
-  if (home_sel < 0)
-    home_sel = 0;
   if (home_sel >= g_nent)
     home_sel = g_nent > 0 ? g_nent - 1 : 0;
-  // Keep sel in view
+  if (home_sel < 0)
+    home_sel = 0;
   if (home_sel < home_scroll)
     home_scroll = home_sel;
-  if (home_sel >= home_scroll + HOME_MAX_VIS)
-    home_scroll = home_sel - HOME_MAX_VIS + 1;
-}
-
-static void home_draw(void) {
-  printf("\x1b[2J\x1b[H"); // clear + home
-  printf("\n  PDF Reader\n");
-  printf("\n  Select the PDF you want to view\n");
-
-  if (g_nent == 0) {
-    printf("  No PDFs found in /pdf/\n");
-    printf("  Put PDF files on the SD card in sdmc/pdf.\n");
-  } else {
-    int vis = g_nent - home_scroll;
-    if (vis > HOME_MAX_VIS)
-      vis = HOME_MAX_VIS;
-    for (int i = 0; i < vis; i++) {
-      int idx = home_scroll + i;
-      PDFEntry *e = &g_ent[idx];
-      bool sel = (idx == home_sel);
-      if (sel)
-        printf("\x1b[7m"); // reverse video
-      // Name row: truncate to 39 chars
-      char name[CON_W];
-      int nlen = strlen(e->name);
-      if (nlen >= CON_W) {
-        strncpy(name, e->name, CON_W - 2);
-        name[CON_W - 2] = '~';
-        name[CON_W - 1] = '\0';
-      } else
-        strcpy(name, e->name);
-      printf(" %-*s\n", CON_W - 2, name);
-      // Progress row
-      if (e->total_pages > 0) {
-        int pct = (e->cur_page + 1) * 100 / e->total_pages;
-        printf("  %d%% read (%d/%d)\n", pct, e->cur_page + 1, e->total_pages);
-      } else {
-        printf("  Not opened yet\n");
-      }
-      if (sel)
-        printf("\x1b[0m");
-    }
-  }
-
-  if (home_msg[0]) {
-    printf("\x1b[%d;0H", CON_H - 2);
-    printf(" %s", home_msg);
-  }
-
-  // Hint line at bottom
-  printf("\x1b[%d;0H", CON_H - 1);
-  printf(" [A]Open  [Up/Down]Select  [START]Quit");
-}
-
-// Flush home screen console to both double-buffers so it's actually visible.
-// consoleInit is called each iteration so it re-captures the current back
-// buffer pointer — without this, the second printf writes to the front buffer.
-static void home_refresh(void) {
-  for (int i = 0; i < 2; i++) {
-    consoleInit(GFX_BOTTOM, NULL);
-    home_draw();
-    gfxFlushBuffers();
-    gfxSwapBuffers();
-    gspWaitForVBlank();
-  }
-}
-
-// Returns index of entry touched, or -1.
-static int home_touch_entry(int py) {
-  int entry_y = HOME_FIRST_ROW * CHAR_PX;               // y = 16
-  int row = (py - entry_y) / (HOME_ROW_SPAN * CHAR_PX); // each entry = 16px
-  if (row < 0)
-    return -1;
-  int idx = home_scroll + row;
-  if (idx < 0 || idx >= g_nent)
-    return -1;
-  // Make sure it's within the visible count
-  if (row >= HOME_MAX_VIS)
-    return -1;
-  return idx;
+  if (home_sel >= home_scroll + LIB_VIS)
+    home_scroll = home_sel - LIB_VIS + 1;
+  int max_scroll = g_nent > LIB_VIS ? g_nent - LIB_VIS : 0;
+  if (home_scroll > max_scroll)
+    home_scroll = max_scroll;
+  if (home_scroll < 0)
+    home_scroll = 0;
 }
 
 // document open / close
@@ -865,6 +698,7 @@ static bool open_pdf(int idx) {
   zoom = 1.0f;
   pan_x = pan_y = 0;
   zoom_mode = false;
+  g_touch.held = false;
 
   // Update entry
   g_ent[idx].total_pages = total_pages;
@@ -897,82 +731,313 @@ static void close_pdf(void) {
   g_active_idx = -1;
 }
 
-// main
-typedef enum { STATE_HOME, STATE_READER, STATE_QUIT } State;
+// drawing: library
 
-// Touch tracking for the reader. hidTouchRead returns (0, 0) once the stylus
-// lifts, so the last held position is kept for tap detection on release.
-static struct {
-  bool held;
-  int sx, sy;         // where the touch started
-  int lx, ly;         // last position while held
-  int pan_sx, pan_sy; // pan offsets when the touch started
-} g_touch;
+// File name without its ".pdf" extension, for display.
+static void display_name(char *out, size_t out_sz, const PDFEntry *e) {
+  snprintf(out, out_sz, "%.*s", (int)strlen(e->name) - 4, e->name);
+}
+
+static float entry_progress(const PDFEntry *e) {
+  return e->total_pages > 0 ? (float)(e->cur_page + 1) / e->total_pages : 0.f;
+}
+
+static void draw_home_top(void) {
+  Canvas c = canvas_get(GFX_TOP, false);
+  fill_all(&c, C_BG);
+
+  fill_rect(&c, 0, 0, c.w, LIB_HEADER_H, C_PANEL);
+  draw_text(&c, 12, 8, "PDF Reader", C_TEXT, 2);
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%d book%s", g_nent, g_nent == 1 ? "" : "s");
+  draw_text(&c, c.w - 12 - text_w(buf, 1), 12, buf, C_DIM, 1);
+  if (book_mode) {
+    Rect pill = {c.w - 24 - text_w(buf, 1) - 88, 8, 80, 16};
+    draw_button(&c, pill, "Book mode", C_ACCENT, 1);
+  }
+
+  if (g_nent == 0) {
+    draw_text_centered(&c, c.w / 2, 96, "No PDFs found", C_TEXT, 2);
+    draw_text_centered(&c, c.w / 2, 128, "Copy .pdf files to the /pdf folder",
+                       C_DIM, 1);
+    draw_text_centered(&c, c.w / 2, 140, "on your SD card.", C_DIM, 1);
+  }
+
+  for (int i = 0; i < LIB_VIS && home_scroll + i < g_nent; i++) {
+    int idx = home_scroll + i;
+    const PDFEntry *e = &g_ent[idx];
+    bool sel = idx == home_sel;
+    int y = LIB_HEADER_H + i * LIB_ROW_H;
+    fill_rect(&c, 0, y, c.w, LIB_ROW_H - 2, sel ? C_ACCENT : C_ROW);
+
+    char name[NAME_LEN];
+    display_name(name, sizeof(name), e);
+    ellipsize(buf, sizeof(buf), name, 46);
+    draw_text(&c, 12, y + 8, buf, C_TEXT, 1);
+
+    if (e->total_pages > 0) {
+      float p = entry_progress(e);
+      draw_bar(&c, 12, y + 24, 160, 5, p,
+               sel ? C_TEXT : (p >= 1.f ? C_DONE : C_ACCENT));
+      snprintf(buf, sizeof(buf), "%d%%  page %d/%d", (int)(p * 100),
+               e->cur_page + 1, e->total_pages);
+      draw_text(&c, 184, y + 22, buf, sel ? C_TEXT : C_DIM, 1);
+    } else {
+      draw_text(&c, 12, y + 22, "New", sel ? C_TEXT : C_DIM, 1);
+    }
+  }
+
+  // Scrollbar when the list does not fit
+  if (g_nent > LIB_VIS) {
+    int top = LIB_HEADER_H, h = LIB_VIS * LIB_ROW_H - 2;
+    int th = h * LIB_VIS / g_nent;
+    int ty = top + (h - th) * home_scroll / (g_nent - LIB_VIS);
+    fill_rect(&c, c.w - 4, top, 3, h, C_TRACK);
+    fill_rect(&c, c.w - 4, ty, 3, th, C_DIM);
+  }
+
+  draw_text_centered(&c, c.w / 2, SCREEN_H - LIB_FOOTER_H + 5,
+                     "A: open   SELECT: book mode   START: quit", C_DIM, 1);
+}
+
+static void draw_home_bottom(void) {
+  Canvas c = canvas_get(GFX_BOTTOM, false);
+  fill_all(&c, C_BG);
+  char buf[64];
+
+  if (g_nent == 0) {
+    draw_text_centered(&c, c.w / 2, 100, "Add PDFs and restart the app.",
+                       C_DIM, 1);
+  } else {
+    const PDFEntry *e = &g_ent[home_sel];
+    draw_text(&c, 12, 10, "SELECTED", C_DIM, 1);
+    // Name word-wrapped over up to three lines of 37 characters
+    char name[NAME_LEN];
+    display_name(name, sizeof(name), e);
+    const char *s = name;
+    for (int line = 0; line < 3 && *s; line++) {
+      int n = (int)strlen(s);
+      if (n > 37 && line < 2) {
+        n = 37;
+        for (int k = 37; k > 20; k--)
+          if (s[k] == ' ') {
+            n = k;
+            break;
+          }
+      }
+      if (n > 37)
+        ellipsize(buf, sizeof(buf), s, 37);
+      else
+        snprintf(buf, sizeof(buf), "%.*s", n, s);
+      draw_text(&c, 12, 24 + line * 11, buf, C_TEXT, 1);
+      s += n;
+      while (*s == ' ')
+        s++;
+    }
+    if (e->total_pages > 0) {
+      float p = entry_progress(e);
+      snprintf(buf, sizeof(buf), "Page %d of %d", e->cur_page + 1,
+               e->total_pages);
+      draw_text(&c, 12, 66, buf, C_DIM, 1);
+      snprintf(buf, sizeof(buf), "%d%%", (int)(p * 100));
+      draw_text(&c, c.w - 12 - text_w(buf, 1), 66, buf, C_TEXT, 1);
+      draw_bar(&c, 12, 80, c.w - 24, 8, p, p >= 1.f ? C_DONE : C_ACCENT);
+    } else {
+      draw_text(&c, 12, 66, "Not opened yet", C_DIM, 1);
+      draw_bar(&c, 12, 80, c.w - 24, 8, 0.f, C_ACCENT);
+    }
+
+    draw_button(&c, BTN_UP, GL_UP, C_PANEL, 2);
+    draw_button(&c, BTN_DOWN, GL_DOWN, C_PANEL, 2);
+    draw_button(&c, BTN_OPEN, "Open", C_ACCENT, 2);
+  }
+  draw_button(&c, BTN_BOOK, book_mode ? "Book mode: On" : "Book mode: Off",
+              book_mode ? C_ACCENT : C_PANEL, 1);
+
+  if (home_msg[0])
+    draw_text_centered(&c, c.w / 2, 218, home_msg, C_TEXT, 1);
+}
+
+// drawing: reader
+
+static void draw_reader_bottom(void) {
+  Canvas c = canvas_get(GFX_BOTTOM, false);
+  fill_all(&c, C_BG);
+  char buf[64];
+
+  char name[NAME_LEN];
+  display_name(name, sizeof(name), &g_ent[g_active_idx]);
+  ellipsize(buf, sizeof(buf), name, 26);
+  draw_text(&c, 12, 10, buf, C_TEXT, 1);
+  if (zoom_mode)
+    draw_button(&c, (Rect){c.w - 92, 6, 80, 16}, "ZOOM MODE", C_ACCENT, 1);
+
+  static const char *const help[][2] = {
+      {"L / R", "previous / next page"},
+      {"D-pad, stick", "pan and scroll"},
+      {"Touch", "drag pans, edges turn"},
+      {"Y", "zoom: Up/Down, X fit"},
+      {"SELECT", "book mode"},
+      {"START", "back to library"},
+  };
+  for (int i = 0; i < 6; i++) {
+    draw_text(&c, 12, 40 + i * 14, help[i][0], C_TEXT, 1);
+    draw_text(&c, 124, 40 + i * 14, help[i][1], C_DIM, 1);
+  }
+
+  // Dashboard: page row (tap to jump) and zoom slider
+  fill_rect(&c, 0, BCONTENT_H, c.w, DASHBOARD_H, C_PANEL);
+  int pct = total_pages > 0 ? (cur_page + 1) * 100 / total_pages : 0;
+  snprintf(buf, sizeof(buf), "%d/%d %d%%", cur_page + 1, total_pages, pct);
+  draw_text(&c, 8, DASH_PAGE_Y + 3, "tap: go to page", C_DIM, 1);
+  draw_text(&c, c.w - text_w(buf, 1) - 8, DASH_PAGE_Y + 3, buf, C_TEXT, 1);
+
+  int range = SLIDER_X1 - SLIDER_X0;
+  int thumb_x =
+      SLIDER_X0 + (int)((zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM) * range + 0.5f);
+  int tc_y = DASH_SLIDER_Y + (SCREEN_H - DASH_SLIDER_Y) / 2;
+  draw_bar(&c, SLIDER_X0, tc_y - 1, range, 3,
+           (zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM), C_ACCENT);
+  fill_rect(&c, thumb_x - 4, DASH_SLIDER_Y + 3, 9, SCREEN_H - DASH_SLIDER_Y - 6,
+            C_TEXT);
+}
+
+// Book mode: left page on the top screen, right page on the bottom screen,
+// both panned together. Page numbers and hints sit in a strip at the foot of
+// the top screen's page.
+static void draw_book(void) {
+  Canvas top = canvas_get(GFX_TOP, true);
+  Canvas bot = canvas_get(GFX_BOTTOM, true);
+  blit_page(&top, slots[SLOT_CUR].pix, pan_x, pan_y, true);
+  blit_page(&bot, slots[SLOT_CUR + 1].pix, pan_x, pan_y, true);
+
+  char buf[48];
+  if (cur_page + 1 < total_pages)
+    snprintf(buf, sizeof(buf), "%d-%d / %d", cur_page + 1, cur_page + 2,
+             total_pages);
+  else
+    snprintf(buf, sizeof(buf), "%d / %d", cur_page + 1, total_pages);
+  if (zoom > 1.001f || zoom < 0.999f) {
+    size_t n = strlen(buf);
+    snprintf(buf + n, sizeof(buf) - n, "  %.1fx", zoom);
+  }
+  fill_rect(&top, 0, top.h - 16, top.w, 16, C_PANEL);
+  draw_text_centered(&top, top.w / 2, top.h - 12, buf, C_TEXT, 1);
+  if (zoom < 1.001f) {
+    fill_rect(&top, 0, 0, top.w, 16, C_PANEL);
+    draw_text_centered(&top, top.w / 2, 4, "A/Y zoom  X fit  SELECT exit",
+                       C_DIM, 1);
+  }
+}
+
+// Redraw both screens into the back buffers and queue them for display.
+static void present(void) {
+  if (g_state == STATE_HOME) {
+    draw_home_top();
+    draw_home_bottom();
+  } else if (book_mode) {
+    draw_book();
+  } else {
+    Canvas top = canvas_get(GFX_TOP, false);
+    blit_page(&top, slots[SLOT_CUR].pix, pan_x, pan_y, false);
+    draw_reader_bottom();
+  }
+  gfxFlushBuffers();
+  gfxSwapBuffers();
+}
+
+// input: library
 
 static void home_show(void) {
+  g_state = STATE_HOME;
   qsort(g_ent, g_nent, sizeof(PDFEntry), ent_cmp);
   home_sel = 0;
   home_scroll = 0;
-  home_clamp_scroll();
-  clear_top(0x18, 0x18, 0x40);
-  home_refresh();
-}
-
-static State home_update(u32 kDown, u32 kRepeat, const touchPosition *tp) {
-  if (kDown & KEY_START)
-    return STATE_QUIT;
-
-  bool dirty = false;
-  if (g_nent > 0 && (kRepeat & (KEY_UP | KEY_DOWN))) {
-    // Wrap around at either end of the list.
-    home_sel += (kRepeat & KEY_DOWN) ? 1 : -1;
-    home_sel = (home_sel + g_nent) % g_nent;
-    home_msg[0] = '\0';
-    dirty = true;
-  }
-
-  int open_idx = -1;
-  if (kDown & KEY_A)
-    open_idx = home_sel;
-  else if (kDown & KEY_TOUCH)
-    open_idx = home_touch_entry(tp->py);
-
-  if (open_idx >= 0 && open_idx < g_nent) {
-    home_sel = open_idx;
-    home_clamp_scroll();
-    snprintf(home_msg, sizeof(home_msg), "Opening %.28s...", g_ent[open_idx].name);
-    home_refresh();
-    home_msg[0] = '\0';
-    if (open_pdf(open_idx)) {
-      // consoleInit set bottom to RGB565; restore BGR8 before raw writes
-      gfxSetScreenFormat(GFX_BOTTOM, GSP_BGR8_OES);
-      refresh();
-      return STATE_READER;
-    }
-    snprintf(home_msg, sizeof(home_msg), "Could not open %.24s", g_ent[open_idx].name);
-    dirty = true;
-  }
-
-  if (dirty) {
-    home_clamp_scroll();
-    home_refresh();
-  }
-  return STATE_HOME;
+  home_msg[0] = '\0';
+  present();
 }
 
 static void toggle_book_mode(void) {
   book_mode = !book_mode;
   zoom_mode = false;
   g_touch.held = false;
+  zoom = 1.0f;
   pan_x = pan_y = 0;
-  doc_gen++; // discard renders made for the other mode
+  if (doc) {
+    doc_gen++; // discard renders made for the other mode
+    reload_all();
+  }
+}
+
+static void home_open(int idx) {
+  home_sel = idx;
+  home_clamp_scroll();
+  char full[NAME_LEN], name[40];
+  display_name(full, sizeof(full), &g_ent[idx]);
+  ellipsize(name, sizeof(name), full, 28);
+  snprintf(home_msg, sizeof(home_msg), "Opening %s", name);
+  present();
+  gspWaitForVBlank(); // let the message reach the screen before blocking
+  home_msg[0] = '\0';
+  if (open_pdf(idx)) {
+    g_state = STATE_READER;
+    present();
+    return;
+  }
+  snprintf(home_msg, sizeof(home_msg), "Could not open %s", name);
+  present();
+}
+
+static void home_update(u32 kDown, u32 kRepeat, const touchPosition *tp) {
+  if (kDown & KEY_START) {
+    g_state = STATE_QUIT;
+    return;
+  }
+
+  bool touch = kRepeat & KEY_TOUCH;
+  int step = 0;
+  if ((kRepeat & KEY_DOWN) || (touch && rect_hit(BTN_DOWN, tp->px, tp->py)))
+    step = 1;
+  if ((kRepeat & KEY_UP) || (touch && rect_hit(BTN_UP, tp->px, tp->py)))
+    step = -1;
+
+  bool dirty = false;
+  if (step && g_nent > 0) {
+    // Wrap around at either end of the list.
+    home_sel = (home_sel + step + g_nent) % g_nent;
+    home_clamp_scroll();
+    home_msg[0] = '\0';
+    dirty = true;
+  }
+  if ((kDown & KEY_SELECT) ||
+      ((kDown & KEY_TOUCH) && rect_hit(BTN_BOOK, tp->px, tp->py))) {
+    toggle_book_mode();
+    dirty = true;
+  }
+  if (g_nent > 0 && ((kDown & KEY_A) || ((kDown & KEY_TOUCH) &&
+                                         rect_hit(BTN_OPEN, tp->px, tp->py)))) {
+    home_open(home_sel);
+    return;
+  }
+  if (dirty)
+    present();
+}
+
+// input: reader
+
+static void set_zoom(float z) {
+  zoom = fminf(fmaxf(z, MIN_ZOOM), MAX_ZOOM);
+  pan_x = pan_y = 0;
   reload_all();
 }
 
-static void set_zoom(float z) {
-  zoom = z;
-  pan_x = pan_y = 0;
-  reload_all();
+// Circle pad deflection beyond the dead zone, scaled to pixels per frame.
+static int cpad_axis(int d) {
+  if (d > CPAD_DEAD)
+    return (int)((d - CPAD_DEAD) * CPAD_SCALE);
+  if (d < -CPAD_DEAD)
+    return (int)((d + CPAD_DEAD) * CPAD_SCALE);
+  return 0;
 }
 
 // Bottom-screen dashboard (page row and zoom slider).
@@ -1017,8 +1082,12 @@ static bool reader_dashboard_touch(u32 kDown, const touchPosition *tp) {
   return true;
 }
 
-// Touch on the page area: drag pans, a tap on the left/right third turns.
-static bool reader_page_touch(u32 kHeld, const touchPosition *tp) {
+// Track a touch on the page area. While held, the page follows the stylus
+// (in rotated logical coordinates for book mode). Returns true when the pan
+// changed; *tapped is set when the stylus lifted after barely moving.
+static bool track_touch(u32 kHeld, const touchPosition *tp, bool rotated,
+                        bool *tapped) {
+  *tapped = false;
   if (kHeld & KEY_TOUCH) {
     if (!g_touch.held) {
       g_touch.held = true;
@@ -1030,43 +1099,42 @@ static bool reader_page_touch(u32 kHeld, const touchPosition *tp) {
     }
     g_touch.lx = tp->px;
     g_touch.ly = tp->py;
+    int dx = g_touch.lx - g_touch.sx, dy = g_touch.ly - g_touch.sy;
+    // In book mode logical x follows physical y and logical y runs against
+    // physical x (see Canvas).
+    int lx = rotated ? dy : dx, ly = rotated ? -dx : dy;
     int ox = pan_x, oy = pan_y;
-    pan_x = g_touch.pan_sx - (g_touch.lx - g_touch.sx);
-    pan_y = g_touch.pan_sy - (g_touch.ly - g_touch.sy);
+    pan_x = g_touch.pan_sx - lx;
+    pan_y = g_touch.pan_sy - ly;
     clamp_pan();
     return pan_x != ox || pan_y != oy;
   }
-  if (!g_touch.held)
-    return false;
-  g_touch.held = false;
-  int dx = g_touch.lx - g_touch.sx, dy = g_touch.ly - g_touch.sy;
-  if (dx * dx + dy * dy >= 100)
-    return false;
-  if (g_touch.sx < BSCREEN_W / 3)
-    nav_prev();
-  else if (g_touch.sx > 2 * BSCREEN_W / 3)
-    nav_next();
-  else
-    return false;
-  return true;
+  if (g_touch.held) {
+    g_touch.held = false;
+    int dx = g_touch.lx - g_touch.sx, dy = g_touch.ly - g_touch.sy;
+    *tapped = dx * dx + dy * dy < 100;
+  }
+  return false;
 }
 
 static bool reader_zoom_input(u32 kDown, u32 kHeld) {
   bool dirty = false;
   if ((kDown & KEY_DUP) && zoom < MAX_ZOOM - 0.001f) {
-    set_zoom(fminf(zoom + ZOOM_STEP, MAX_ZOOM));
+    set_zoom(zoom + ZOOM_STEP);
     dirty = true;
   }
   if ((kDown & KEY_DDOWN) && zoom > MIN_ZOOM + 0.001f) {
-    set_zoom(fmaxf(zoom - ZOOM_STEP, MIN_ZOOM));
+    set_zoom(zoom - ZOOM_STEP);
     dirty = true;
   }
   if (kDown & KEY_X) {
     set_zoom(1.0f);
     dirty = true;
   }
-  if (kDown & (KEY_A | KEY_B))
+  if (kDown & (KEY_A | KEY_B)) {
     zoom_mode = false;
+    dirty = true;
+  }
   // D-left/right pan horizontally in zoom mode
   int ox = pan_x;
   if (kHeld & KEY_DRIGHT)
@@ -1112,26 +1180,90 @@ static bool reader_scroll_input(u32 kDown, u32 kHeld) {
   return dirty || pan_x != ox || pan_y != oy;
 }
 
-static bool reader_cpad_input(const circlePosition *cpad) {
+// Normal reading: top screen page, bottom screen dashboard.
+static bool reader_normal_input(u32 kDown, u32 kHeld, const circlePosition *cpad,
+                                const touchPosition *tp) {
+  bool dirty = false;
+  if (kDown & KEY_Y) {
+    zoom_mode = !zoom_mode;
+    dirty = true;
+  }
+  if (zoom_mode)
+    dirty |= reader_zoom_input(kDown, kHeld);
+  else
+    dirty |= reader_scroll_input(kDown, kHeld);
+
   int ox = pan_x, oy = pan_y;
-  if (cpad->dx > CPAD_DEAD)
-    pan_x += (int)((cpad->dx - CPAD_DEAD) * CPAD_SCALE);
-  if (cpad->dx < -CPAD_DEAD)
-    pan_x += (int)((cpad->dx + CPAD_DEAD) * CPAD_SCALE);
-  if (cpad->dy > CPAD_DEAD)
-    pan_y -= (int)((cpad->dy - CPAD_DEAD) * CPAD_SCALE);
-  if (cpad->dy < -CPAD_DEAD)
-    pan_y -= (int)((cpad->dy + CPAD_DEAD) * CPAD_SCALE);
+  pan_x += cpad_axis(cpad->dx);
+  pan_y -= cpad_axis(cpad->dy);
   clamp_pan();
-  return pan_x != ox || pan_y != oy;
+  dirty |= pan_x != ox || pan_y != oy;
+
+  // Dashboard interactions have priority over panning the page.
+  if ((kHeld & KEY_TOUCH) && tp->py >= BCONTENT_H)
+    return reader_dashboard_touch(kDown, tp) || dirty;
+
+  bool tapped;
+  dirty |= track_touch(kHeld, tp, false, &tapped);
+  if (tapped) {
+    if (g_touch.sx < BSCREEN_W / 3) {
+      nav_prev();
+      dirty = true;
+    } else if (g_touch.sx > 2 * BSCREEN_W / 3) {
+      nav_next();
+      dirty = true;
+    }
+  }
+  return dirty;
 }
 
-static State reader_update(u32 kDown, u32 kHeld, const circlePosition *cpad,
-                           const touchPosition *tp) {
+// Book mode, console held turned left. Seen by the reader, physical up on the
+// circle pad points left and physical right points up.
+static bool reader_book_input(u32 kDown, u32 kHeld, const circlePosition *cpad,
+                              const touchPosition *tp) {
+  bool dirty = false;
+  if (kDown & (KEY_R | KEY_DDOWN)) {
+    book_next();
+    dirty = true;
+  }
+  if (kDown & (KEY_L | KEY_DUP)) {
+    book_prev();
+    dirty = true;
+  }
+  if ((kDown & KEY_A) && zoom < MAX_ZOOM - 0.001f) {
+    set_zoom(zoom + BOOK_ZOOM_STEP);
+    dirty = true;
+  }
+  if ((kDown & KEY_Y) && zoom > 1.001f) {
+    set_zoom(fmaxf(zoom - BOOK_ZOOM_STEP, 1.0f));
+    dirty = true;
+  }
+  if ((kDown & KEY_X) && (zoom > 1.001f || zoom < 0.999f)) {
+    set_zoom(1.0f);
+    dirty = true;
+  }
+
+  int ox = pan_x, oy = pan_y;
+  pan_x -= cpad_axis(cpad->dy);
+  pan_y -= cpad_axis(cpad->dx);
+  clamp_pan();
+  dirty |= pan_x != ox || pan_y != oy;
+
+  bool tapped;
+  dirty |= track_touch(kHeld, tp, true, &tapped);
+  if (tapped) {
+    book_next();
+    dirty = true;
+  }
+  return dirty;
+}
+
+static void reader_update(u32 kDown, u32 kHeld, const circlePosition *cpad,
+                          const touchPosition *tp) {
   if (kDown & KEY_START) {
     close_pdf();
     home_show();
-    return STATE_HOME;
+    return;
   }
 
   bool dirty = false;
@@ -1139,39 +1271,17 @@ static State reader_update(u32 kDown, u32 kHeld, const circlePosition *cpad,
     toggle_book_mode();
     dirty = true;
   }
-
-  if (book_mode) {
-    if (kDown & (KEY_R | KEY_TOUCH | KEY_DDOWN)) {
-      book_next();
-      dirty = true;
-    }
-    if (kDown & (KEY_L | KEY_DUP)) {
-      book_prev();
-      dirty = true;
-    }
-  } else {
-    if (kDown & KEY_Y)
-      zoom_mode = !zoom_mode;
-    if (zoom_mode)
-      dirty |= reader_zoom_input(kDown, kHeld);
-    else
-      dirty |= reader_scroll_input(kDown, kHeld);
-    dirty |= reader_cpad_input(cpad);
-
-    // Dashboard interactions have priority over panning the page.
-    if ((kHeld & KEY_TOUCH) && tp->py >= BCONTENT_H)
-      dirty |= reader_dashboard_touch(kDown, tp);
-    else
-      dirty |= reader_page_touch(kHeld, tp);
-  }
+  if (book_mode)
+    dirty |= reader_book_input(kDown, kHeld, cpad, tp);
+  else
+    dirty |= reader_normal_input(kDown, kHeld, cpad, tp);
 
   if (g_active_idx >= 0)
     g_ent[g_active_idx].cur_page = cur_page;
   if (pq_poll())
     dirty = true;
   if (dirty)
-    refresh();
-  return STATE_READER;
+    present();
 }
 
 int main(void) {
@@ -1187,8 +1297,7 @@ int main(void) {
   progress_load();
   home_show();
 
-  State state = STATE_HOME;
-  while (state != STATE_QUIT && aptMainLoop()) {
+  while (g_state != STATE_QUIT && aptMainLoop()) {
     gspWaitForVBlank();
     hidScanInput();
     circlePosition cpad;
@@ -1196,10 +1305,10 @@ int main(void) {
     touchPosition tp;
     hidTouchRead(&tp);
 
-    if (state == STATE_HOME)
-      state = home_update(hidKeysDown(), hidKeysDownRepeat(), &tp);
+    if (g_state == STATE_HOME)
+      home_update(hidKeysDown(), hidKeysDownRepeat(), &tp);
     else
-      state = reader_update(hidKeysDown(), hidKeysHeld(), &cpad, &tp);
+      reader_update(hidKeysDown(), hidKeysHeld(), &cpad, &tp);
   }
 
   close_pdf();

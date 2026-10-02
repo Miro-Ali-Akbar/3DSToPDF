@@ -50,9 +50,10 @@ SD card
 
 | Input | Action |
 |-------|--------|
-| D-pad Up / Down | Navigate the PDF list |
+| D-pad Up / Down | Navigate the PDF list (top screen) |
 | **A** | Open selected PDF |
-| Touch | Tap an entry to open it |
+| Touch | Arrow buttons, **Open** and **Book mode** on the bottom screen |
+| **SELECT** | Toggle book mode |
 | **START** | Quit |
 
 ### Reader
@@ -81,13 +82,16 @@ SD card
 
 Shows two pages at once, one per screen, rotated so the console is held turned
 to the left like a book: the top screen is the left page, the bottom screen the
-right page. Zoom and panning are off in this mode.
+right page. Both pages zoom and pan together.
 
 | Input | Action |
 |-------|--------|
 | Tap bottom screen | Next two pages |
 | **R** / D-pad Down | Next two pages |
 | **L** / D-pad Up | Previous two pages |
+| **A** / **Y** | Zoom in / out |
+| **X** | Reset zoom |
+| Circle pad / touch drag | Pan when zoomed |
 | **SELECT** | Back to normal mode |
 
 #### Touch Dashboard (bottom screen)
