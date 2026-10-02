@@ -30,16 +30,10 @@ Download the latest files from the
 
 ### Install over Wi-Fi (QR code)
 
-1. Open **FBI** and choose **Remote Install → Scan QR Code**.
-2. Scan this code. FBI downloads and installs the latest version:
-
-<p align="center">
-  <img src="Photos/cia-qr.png" alt="QR code for the latest 3dsToPdf.cia" width="200">
-</p>
-
+1. Open the latest release on the [Releases](../../releases) page.
+2. In **FBI** choose **Remote Install → Scan QR Code** and scan the QR code
+   shown there. FBI downloads and installs the CIA.
 3. Start **3DS PDF Reader** from the HOME Menu.
-
-Every release page also has a QR code for that exact version.
 
 ### Install from the SD card (.cia)
 
