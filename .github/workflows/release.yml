@@ -27,7 +27,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update -qq
-          apt-get install -y --no-install-recommends git unzip curl ca-certificates
+          apt-get install -y --no-install-recommends git unzip curl ca-certificates qrencode
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             -o /usr/share/keyrings/githubcli-archive-keyring.gpg
           chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -55,11 +55,17 @@ jobs:
       - name: Build CIA
         run: make cia
 
-      - name: Collect release artifacts
+      - name: Collect release artifacts and QR code
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p dist
-          cp *.3dsx dist/ 2>/dev/null || true
-          cp *.cia  dist/ 2>/dev/null || true
+          cp 3dsToPdf.3dsx 3dsToPdf.cia dist/
+          # FBI's Remote Install -> Scan QR Code downloads and installs the CIA
+          # straight from this URL.
+          qrencode -s 8 -m 2 -o dist/cia_qr.png \
+            "https://github.com/${REPO}/releases/download/${RELEASE_TAG}/3dsToPdf.cia"
           ls -lh dist/
 
       - name: Create GitHub release
@@ -68,26 +74,26 @@ jobs:
           IS_PRERELEASE: ${{ github.event.inputs.prerelease }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
         run: |
+          cat > /tmp/notes.md <<NOTES
+          ## 3DS PDF Reader ${RELEASE_TAG}
+
+          ### Install over Wi-Fi
+          In FBI choose **Remote Install → Scan QR Code** and scan:
+
+          ![CIA QR code](https://github.com/${REPO}/releases/download/${RELEASE_TAG}/cia_qr.png)
+
+          ### Install from the SD card
+          - **CIA:** copy \`3dsToPdf.cia\` to the SD card and install it with FBI.
+          - **Homebrew Launcher:** copy \`3dsToPdf.3dsx\` to \`/3ds/3dsToPdf/\`.
+
+          Put your PDF files in a \`pdf\` folder at the root of the SD card.
+
+          Built from \`${COMMIT_SHA}\`.
+          NOTES
           gh release create "$RELEASE_TAG" \
             --title "3DS PDF Reader $RELEASE_TAG" \
             $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
-            --notes "## 3DS PDF Reader $RELEASE_TAG
-
-          ### Installation
-          **Homebrew:** Copy \`3dsToPdf.3dsx\` to \`/3ds/3dsToPdf/\` on the SD card.
-          **CIA:** Install \`3dsToPdf.cia\` with FBI or another CIA installer.
-
-          ### Usage
-          - Put PDF files in \`/pdf/\` on the SD card root.
-          - Home menu: **A** or touch to open a PDF; **↑↓** to scroll the list.
-          - Reader: **L/R** page turn · **Y** zoom mode · **D-pad/circle pad** scroll.
-          - **START** returns to the home menu.
-
-          Built from \`$COMMIT_SHA\`." \
-            dist/*.3dsx dist/*.cia 2>/dev/null || \
-          gh release create "$RELEASE_TAG" \
-            --title "3DS PDF Reader $RELEASE_TAG" \
-            $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
-            --notes "Built from $COMMIT_SHA." \
-            dist/*.3dsx
+            --notes-file /tmp/notes.md \
+            dist/3dsToPdf.3dsx dist/3dsToPdf.cia dist/cia_qr.png

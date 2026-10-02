@@ -28,7 +28,20 @@ You need a 3DS with custom firmware (for example
 Download the latest files from the
 [Releases](../../releases) page.
 
-### Install to the HOME Menu (.cia)
+### Install over Wi-Fi (QR code)
+
+1. Open **FBI** and choose **Remote Install → Scan QR Code**.
+2. Scan this code. FBI downloads and installs the latest version:
+
+<p align="center">
+  <img src="Photos/cia-qr.png" alt="QR code for the latest 3dsToPdf.cia" width="200">
+</p>
+
+3. Start **3DS PDF Reader** from the HOME Menu.
+
+Every release page also has a QR code for that exact version.
+
+### Install from the SD card (.cia)
 
 1. Copy `3dsToPdf.cia` to your SD card.
 2. Open **FBI**, go to **SD**, select the file and choose **Install CIA**.
