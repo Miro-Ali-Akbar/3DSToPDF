@@ -43,24 +43,17 @@ jobs:
       - name: Build 3dsx
         run: make -j$(nproc)
 
-      # CIA build requires bannertool + makerom; attempt to fetch pre-built binaries.
-      - name: Download CIA tools
+      - name: Install CIA tools
         run: |
-          mkdir -p /tmp/ciatools
-          curl -sSL \
-            "https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool-ubuntu-x86_64.zip" \
-            -o /tmp/bt.zip && \
-            unzip -q /tmp/bt.zip -d /tmp/ciatools && \
-            chmod +x /tmp/ciatools/bannertool || echo "bannertool unavailable"
-          curl -sSL \
-            "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip" \
-            -o /tmp/mr.zip && \
-            unzip -q /tmp/mr.zip -d /tmp/ciatools && \
-            chmod +x /tmp/ciatools/makerom || echo "makerom unavailable"
-          echo "/tmp/ciatools" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/Epicpkmn11/bannertool/releases/latest/download/bannertool.zip" -o /tmp/bt.zip
+          unzip -q /tmp/bt.zip -d /tmp/bt
+          install -m 755 /tmp/bt/linux-x86_64/bannertool /usr/local/bin/bannertool
+          curl -fsSL "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip" -o /tmp/mr.zip
+          unzip -q /tmp/mr.zip -d /tmp/mr
+          install -m 755 /tmp/mr/makerom /usr/local/bin/makerom
 
-      - name: Build CIA (best-effort)
-        run: make cia || echo "CIA build skipped"
+      - name: Build CIA
+        run: make cia
 
       - name: Collect release artifacts
         run: |

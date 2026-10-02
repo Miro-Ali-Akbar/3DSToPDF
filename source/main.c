@@ -520,6 +520,8 @@ static void worker_start(void) {
 }
 
 static void worker_stop(void) {
+  if (!g_thread)
+    return;
   pq_cancel();
   LightLock_Lock(&g_worker.lock);
   g_worker.quit = true;
@@ -821,7 +823,7 @@ static void close_pdf(void) {
   }
   progress_save();
   worker_stop();
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < NSLOTS; i++)
     slot_drop(i);
   fz_drop_document(ctx, doc);
   doc = NULL;

@@ -38,6 +38,10 @@ DATA		:=	data
 INCLUDES	:=	include
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
+ICON		:=	app/icon.png
+APP_TITLE	:=	3DS PDF Reader
+APP_DESCRIPTION	:=	A PDF reader for Nintendo 3DS
+APP_AUTHOR	:=	Miro Ali Akbar
 #ROMFS		:=	romfs
 #GFXBUILD	:=	$(ROMFS)/gfx
 
@@ -158,17 +162,13 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-APP_TITLE    ?= 3DS PDF Reader
-APP_DESC     ?= A PDF reader for Nintendo 3DS
-APP_AUTHOR   ?= Miro Ali Akbar
-APP_VER_MAJOR ?= 1
-APP_VER_MINOR ?= 0
-
-# cia target requires bannertool and makerom to be on PATH.
-# Install from:
-#   bannertool: https://github.com/Steveice10/bannertool/releases
+# CIA packaging. Requires makerom and bannertool on PATH:
 #   makerom:    https://github.com/3DSGuy/Project_CTR/releases
-CIA_TITLE_ID ?= 0x00040000DEADBEEF
+#   bannertool: https://github.com/Epicpkmn11/bannertool/releases
+# The SMDH icon comes from devkitPro's smdhtool (same file as the .3dsx uses).
+RSF        := app/app.rsf
+BANNER_IMG := app/banner.png
+BANNER_AUD := app/audio.wav
 
 .PHONY: all clean cia
 
@@ -177,31 +177,10 @@ all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 #---------------------------------------------------------------------------------
-# CIA build — needs bannertool + makerom on PATH.
-# A placeholder audio.bcwav and a 48×48 icon.png are expected in the project root.
-# If icon.png is absent, makerom will use a blank icon.
 cia: all
-	@echo Building CIA ...
-	@[ -f icon.png ] || (echo "WARNING: icon.png not found, CIA may lack an icon." )
-	bannertool makebanner \
-		-ci "$(if $(wildcard icon.png),icon.png,$(CTRULIB)/default_icon.png)" \
-		-ca "$(if $(wildcard audio.bcwav),audio.bcwav,/dev/null)" \
-		-o "$(CURDIR)/banner.bin" 2>/dev/null || true
-	bannertool makesmdh \
-		-s "$(APP_TITLE)" \
-		-l "$(APP_TITLE) — $(APP_DESC)" \
-		-p "$(APP_AUTHOR)" \
-		-i "$(if $(wildcard icon.png),icon.png,$(CTRULIB)/default_icon.png)" \
-		-o "$(CURDIR)/icon.icn" 2>/dev/null || true
-	makerom -f cia \
-		-o "$(CURDIR)/$(TARGET).cia" \
-		-elf "$(CURDIR)/$(TARGET).elf" \
-		-rsf "$(CURDIR)/app.rsf" \
-		-banner "$(CURDIR)/banner.bin" \
-		-icon "$(CURDIR)/icon.icn" \
-		-exefslogo \
-		-target t
-	@echo CIA built: $(TARGET).cia
+	bannertool makebanner -i $(BANNER_IMG) -a $(BANNER_AUD) -o $(BUILD)/banner.bnr
+	makerom -f cia -target t -exefslogo -o $(TARGET).cia -elf $(TARGET).elf \
+		-rsf $(RSF) -icon $(TARGET).smdh -banner $(BUILD)/banner.bnr
 
 $(BUILD):
 	@mkdir -p $@
@@ -219,7 +198,7 @@ endif
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
+	@rm -fr $(BUILD) $(TARGET).3dsx $(TARGET).cia $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
 
 #---------------------------------------------------------------------------------
 $(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s
