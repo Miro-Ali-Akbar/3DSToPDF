@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g., v1.0.0)"
+        description: "Release tag (e.g. v1.0.0)"
         required: true
-        default: "auto"
+        default: "v1.0.0"
       prerelease:
         description: "Mark as pre-release?"
         type: boolean
@@ -26,10 +26,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          rm -f /etc/apt/sources.list.d/devkitpro*.list
           apt-get update -qq
-          apt-get install -y --no-install-recommends \
-            git unzip curl ca-certificates qrencode imagemagick python3
+          apt-get install -y --no-install-recommends git unzip curl ca-certificates
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             -o /usr/share/keyrings/githubcli-archive-keyring.gpg
           chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -42,164 +40,61 @@ jobs:
       - name: Install 3DS portlibs
         run: dkp-pacman -Sy --noconfirm 3ds-dev || true
 
-      - name: Generate Banner Assets
-        run: |
-          # Create a clean, black 256x128 PNG file required by bannertool
-          convert -size 256x128 xc:black banner.png
-
-          # Use Python's core standard library to generate a 1-second silent WAV audio file
-          python3 -c "
-          import wave
-          with wave.open('audio.wav', 'wb') as w:
-              w.setnchannels(1)
-              w.setsampwidth(2)
-              w.setframerate(44100)
-              w.writeframes(b'\x00' * 88200)
-          "
-
       - name: Build 3dsx
         run: make -j$(nproc)
 
+      # CIA build requires bannertool + makerom; attempt to fetch pre-built binaries.
       - name: Download CIA tools
         run: |
-          # Download and install Bannertool
-          curl -sSL "https://github.com/Epicpkmn11/bannertool/releases/latest/download/bannertool.zip" -o /tmp/bt.zip
-          unzip -q /tmp/bt.zip -d /tmp/bt
-          cp /tmp/bt/linux-x86_64/bannertool /usr/local/bin/bannertool
-          chmod +x /usr/local/bin/bannertool
+          mkdir -p /tmp/ciatools
+          curl -sSL \
+            "https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool-ubuntu-x86_64.zip" \
+            -o /tmp/bt.zip && \
+            unzip -q /tmp/bt.zip -d /tmp/ciatools && \
+            chmod +x /tmp/ciatools/bannertool || echo "bannertool unavailable"
+          curl -sSL \
+            "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip" \
+            -o /tmp/mr.zip && \
+            unzip -q /tmp/mr.zip -d /tmp/ciatools && \
+            chmod +x /tmp/ciatools/makerom || echo "makerom unavailable"
+          echo "/tmp/ciatools" >> "$GITHUB_PATH"
 
-          # Download and install Makerom
-          curl -sSL "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip" -o /tmp/mr.zip
-          unzip -q /tmp/mr.zip -d /tmp/mr
-          cp /tmp/mr/makerom /usr/local/bin/makerom
-          chmod +x /usr/local/bin/makerom
+      - name: Build CIA (best-effort)
+        run: make cia || echo "CIA build skipped"
 
-      - name: Build CIA
-        run: |
-          export APP_TITLE="3DS PDF Reader"
-          export APP_AUTHOR="Miro Ali Akbar"
-          export APP_DESC="A PDF reader for Nintendo 3DS"
-          make cia
-
-      - name: Determine Release Tag
-        id: determine_tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          if [ "$INPUT_TAG" = "auto" ]; then
-            # Fetch the latest release tag (suppress output if it doesn't exist)
-            LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || echo "none")
-
-            if [ "$LATEST_TAG" = "none" ]; then
-              # If there are no previous releases, start at v1.0.0
-              NEXT_TAG="v1.0.0"
-            else
-              # Strip the 'v' from the front (e.g., v1.0.1 -> 1.0.1)
-              VERSION="${LATEST_TAG#v}"
-
-              # Split the version by periods using shell-safe 'cut' commands
-              MAJOR=$(echo "$VERSION" | cut -d. -f1)
-              MINOR=$(echo "$VERSION" | cut -d. -f2)
-              PATCH=$(echo "$VERSION" | cut -d. -f3)
-
-              # Ensure they have default values in case of weird formatting
-              MAJOR=${MAJOR:-1}
-              MINOR=${MINOR:-0}
-              PATCH=${PATCH:-0}
-
-              # Increment the final number (patch)
-              PATCH=$((PATCH + 1))
-              NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
-            fi
-            echo "Calculated next tag: $NEXT_TAG"
-            echo "RELEASE_TAG=$NEXT_TAG" >> "$GITHUB_ENV"
-          else
-            echo "Using manual tag: $INPUT_TAG"
-            echo "RELEASE_TAG=$INPUT_TAG" >> "$GITHUB_ENV"
-          fi
-
-      - name: Collect artifacts and generate QR code
-        env:
-          REPO: ${{ github.repository }}
+      - name: Collect release artifacts
         run: |
           mkdir -p dist
           cp *.3dsx dist/ 2>/dev/null || true
           cp *.cia  dist/ 2>/dev/null || true
-
-          # Generate QR code pointing at the CIA download URL, if a CIA was built.
-          CIA_FILE=$(ls dist/*.cia 2>/dev/null | head -1)
-          if [ -n "$CIA_FILE" ]; then
-            CIA_NAME=$(basename "$CIA_FILE")
-            CIA_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${CIA_NAME}"
-            qrencode -s 8 -m 2 -o dist/cia_qr.png "$CIA_URL"
-            echo "CIA_NAME=$CIA_NAME" >> "$GITHUB_ENV"
-            echo "CIA_URL=$CIA_URL"   >> "$GITHUB_ENV"
-            echo "HAS_CIA=true"       >> "$GITHUB_ENV"
-          else
-            echo "HAS_CIA=false" >> "$GITHUB_ENV"
-          fi
-
           ls -lh dist/
 
       - name: Create GitHub release
         env:
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
           IS_PRERELEASE: ${{ github.event.inputs.prerelease }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
-          REPO: ${{ github.repository }}
-          HAS_CIA: ${{ env.HAS_CIA }}
-          CIA_NAME: ${{ env.CIA_NAME }}
-          CIA_URL: ${{ env.CIA_URL }}
         run: |
-          QR_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/cia_qr.png"
-
-          if [ "$HAS_CIA" = "true" ]; then
-            cat > /tmp/notes.md << NOTES
-          ## 3DS PDF Reader ${RELEASE_TAG}
-
-          ### Installation
-
-          **Homebrew (.3dsx)**
-          Copy \`3DSToPDF.3dsx\` to \`/3ds/3DSToPDF/\` on your SD card and launch via the Homebrew Launcher.
-
-          **CIA (installed title)**
-          Install \`${CIA_NAME}\` with FBI or another CIA installer.
-
-          You can also scan the QR code below directly in FBI (*Remote Install → Scan QR Code*) to download and install the CIA over Wi-Fi:
-
-          ![CIA QR Code](${QR_URL})
-
-          ### Controls
-          - **Home menu:** A or touch to open · ↑↓ to navigate · START to quit
-          - **Reader:** L/R page turn · D-pad/circle pan · Y zoom mode · START return to menu
-          - **Zoom mode:** D-pad ±zoom · X fit width · A/B exit
-
-          Built from \`${COMMIT_SHA}\`.
-          NOTES
-          else
-            cat > /tmp/notes.md << NOTES
-          ## 3DS PDF Reader ${RELEASE_TAG}
-
-          ### Installation
-
-          **Homebrew (.3dsx)**
-          Copy \`3DSToPDF.3dsx\` to \`/3ds/3DSToPDF/\` on your SD card and launch via the Homebrew Launcher.
-
-          *(CIA build was not available for this release.)*
-
-          ### Controls
-          - **Home menu:** A or touch to open · ↑↓ to navigate · START to quit
-          - **Reader:** L/R page turn · D-pad/circle pan · Y zoom mode · START return to menu
-          - **Zoom mode:** D-pad ±zoom · X fit width · A/B exit
-
-          Built from \`${COMMIT_SHA}\`.
-          NOTES
-          fi
-
           gh release create "$RELEASE_TAG" \
             --title "3DS PDF Reader $RELEASE_TAG" \
             $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
-            --notes-file /tmp/notes.md \
-            dist/*.3dsx \
-            $([ "$HAS_CIA" = "true" ] && echo "dist/*.cia dist/cia_qr.png")
+            --notes "## 3DS PDF Reader $RELEASE_TAG
+
+          ### Installation
+          **Homebrew:** Copy \`3dsToPdf.3dsx\` to \`/3ds/3dsToPdf/\` on the SD card.
+          **CIA:** Install \`3dsToPdf.cia\` with FBI or another CIA installer.
+
+          ### Usage
+          - Put PDF files in \`/pdf/\` on the SD card root.
+          - Home menu: **A** or touch to open a PDF; **↑↓** to scroll the list.
+          - Reader: **L/R** page turn · **Y** zoom mode · **D-pad/circle pad** scroll.
+          - **START** returns to the home menu.
+
+          Built from \`$COMMIT_SHA\`." \
+            dist/*.3dsx dist/*.cia 2>/dev/null || \
+          gh release create "$RELEASE_TAG" \
+            --title "3DS PDF Reader $RELEASE_TAG" \
+            $([ "$IS_PRERELEASE" = "true" ] && echo "--prerelease") \
+            --notes "Built from $COMMIT_SHA." \
+            dist/*.3dsx

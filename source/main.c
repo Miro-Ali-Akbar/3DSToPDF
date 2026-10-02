@@ -1,5 +1,4 @@
 #include <3ds.h>
-#include <3ds/allocator/mappable.h>
 #include <dirent.h>
 #include <math.h>
 #include <mupdf/fitz.h>
@@ -521,8 +520,6 @@ static void worker_start(void) {
 }
 
 static void worker_stop(void) {
-  if (!g_thread)
-    return;
   pq_cancel();
   LightLock_Lock(&g_worker.lock);
   g_worker.quit = true;
@@ -824,80 +821,25 @@ static void close_pdf(void) {
   }
   progress_save();
   worker_stop();
-  for (int i = 0; i < NSLOTS; i++)
+  for (int i = 0; i < 3; i++)
     slot_drop(i);
   fz_drop_document(ctx, doc);
   doc = NULL;
   g_active_idx = -1;
 }
 
-// Heap sizes: 8MB regular + 10MB linear, leaving ~44MB for 38MB MuPDF code.
-u32 __ctru_heap_size        = 0x800000;
-u32 __ctru_linear_heap_size = 0xA00000;
-
-// Override weak __system_allocateHeaps to skip svcGetResourceLimit, which
-// calls svcBreak on failure. The libctru default crashes on retail hardware
-// when the resource limit query returns an error before allocating heaps.
-extern u32 __ctru_heap, __ctru_linear_heap;
-extern u32 fake_heap_start, fake_heap_end;
-
-void __system_allocateHeaps(void) {
-    svcControlMemory(&__ctru_heap, 0x08000000, 0, __ctru_heap_size,
-                     MEMOP_ALLOC, MEMPERM_READWRITE);
-    svcControlMemory(&__ctru_linear_heap, 0, 0, __ctru_linear_heap_size,
-                     MEMOP_ALLOC_LINEAR, MEMPERM_READWRITE);
-    mappableInit(0x10000000, 0x14000000);
-    fake_heap_start = __ctru_heap;
-    fake_heap_end   = __ctru_heap + __ctru_heap_size;
-}
-
-__attribute__((constructor)) static void pre_main_diag(void) {
-  FILE *f = fopen("sdmc:/3dsToPdf_pre.txt", "w");
-  if (f) { fputs("pre-main OK\n", f); fclose(f); }
-}
-
 // main
 typedef enum { STATE_HOME, STATE_READER } State;
 
-static void stage_log(const char *msg) {
-  FILE *f = fopen("sdmc:/3dsToPdf_diag.txt", "a");
-  if (f) { fputs(msg, f); fputc('\n', f); fclose(f); }
-}
-
-static void dbg(const char *msg) {
-  consoleClear();
-  printf("[3dsToPdf]\n%s\n", msg);
-  gfxFlushBuffers();
-  gfxSwapBuffers();
-  gfxFlushBuffers();
-  gfxSwapBuffers();
-}
-
 int main(int argc, char *argv[]) {
-  stage_log("main() started");
-
   gfxInitDefault();
-  stage_log("gfxInitDefault OK");
 
-  consoleInit(GFX_BOTTOM, NULL);
-  stage_log("consoleInit OK");
-
-  dbg("MuPDF init...");
-  stage_log("dbg called");
-
-  ctx = fz_new_context(NULL, NULL, 4 * 1024 * 1024);
-  if (!ctx) { dbg("ERROR: fz_new_context failed"); svcSleepThread(3000000000LL); goto end; }
-
-  dbg("Registering handlers...");
+  ctx = fz_new_context(NULL, NULL, 16 * 1024 * 1024);
+  if (!ctx)
+    goto end;
   fz_register_document_handlers(ctx);
 
-  dbg("Waiting for SD card...");
-  svcSleepThread(500000000LL);
-
-  dbg("Scanning PDFs...");
   scan_pdfs();
-
-  dbg("Loading progress...");
   progress_load();
   qsort(g_ent, g_nent, sizeof(PDFEntry), ent_cmp);
 
@@ -908,7 +850,7 @@ int main(int argc, char *argv[]) {
   int touch_sx = 0, touch_sy = 0;
   int touch_pan_sx = 0, touch_pan_sy = 0;
 
-  // home init — reinitialise console for home screen use
+  // home init
   clear_top(0x18, 0x18, 0x40);
   home_refresh();
 
