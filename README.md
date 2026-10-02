@@ -12,6 +12,7 @@ A homebrew PDF reader for the Nintendo 3DS, built with [devkitPro](https://devki
 - Home menu listing all PDFs from `/pdf/` on the SD card, sorted by most recently opened
 - Progress is saved and restored per file — resumes from where you left off
 - Jump to any page instantly via the numeric on-screen keyboard
+- Book mode: two pages side by side across both screens, console held sideways
 - Touch-screen navigation in the reader (tap left/right thirds to turn pages, drag to pan)
 - CIA installation support (`make cia`)
 
@@ -64,6 +65,7 @@ SD card
 | Touch left third | Previous page |
 | Touch right third | Next page |
 | **Y** | Enter zoom mode |
+| **SELECT** | Toggle book mode |
 | **START** | Return to home menu |
 
 #### Zoom Mode
@@ -74,6 +76,19 @@ SD card
 | **X** | Reset zoom to fit width |
 | **A** or **B** | Exit zoom mode |
 | Touch slider | Drag to set zoom level directly |
+
+#### Book Mode
+
+Shows two pages at once, one per screen, rotated so the console is held turned
+to the left like a book: the top screen is the left page, the bottom screen the
+right page. Zoom and panning are off in this mode.
+
+| Input | Action |
+|-------|--------|
+| Tap bottom screen | Next two pages |
+| **R** / D-pad Down | Next two pages |
+| **L** / D-pad Up | Previous two pages |
+| **SELECT** | Back to normal mode |
 
 #### Touch Dashboard (bottom screen)
 

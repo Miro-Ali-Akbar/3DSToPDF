@@ -13,6 +13,13 @@
 #define SCREEN_H 240
 #define BOTTOM_X_OFF ((SCREEN_W - BSCREEN_W) / 2)
 
+// Book mode: both screens show one page each, rotated 90 degrees clockwise, so
+// the console is held turned left like a book (top screen = left page). Pages
+// are fit into the bottom screen's portrait size so both pages match.
+#define BOOK_W SCREEN_H
+#define BOOK_H BSCREEN_W
+#define BOOK_BG 0x30
+
 // Dashboard: 32 px at the bottom of the bottom screen in reader mode.
 // Top 12px = page indicator row; bottom 20px = zoom slider row.
 #define DASHBOARD_H 32
@@ -187,11 +194,10 @@ static void draw_dashboard(u8 *fb, int page1, int total, float z) {
       fb_pix(fb, x, y, 0x22, 0x22, 0x22);
 
   // Help text (two lines, dimmed grey, just above the dashboard)
-  draw_text_b(fb, 4, BCONTENT_H - 18,
-              "D-pad/circle: pan   L/R: page   Start: menu", 0x70, 0x70, 0x70);
-  draw_text_b(fb, 4, BCONTENT_H - 9,
-              "Y: zoom   X: fit   A/B: exit zoom   touch: pan", 0x70, 0x70,
-              0x70);
+  draw_text_b(fb, 4, BCONTENT_H - 18, "D-pad/circle/touch: pan  L/R: page",
+              0x70, 0x70, 0x70);
+  draw_text_b(fb, 4, BCONTENT_H - 9, "Y:zoom  X:fit  SELECT:book  START:menu",
+              0x70, 0x70, 0x70);
 
   // Separator line between page row and slider row
   for (int x = 0; x < BSCREEN_W; x++)
@@ -340,7 +346,8 @@ static float zoom = 1.0f;
 static int pan_x = 0;
 static int pan_y = 0;
 static bool zoom_mode = false;
-static u32 doc_gen = 0; // incremented each time a new document opens
+static bool book_mode = false;
+static u32 doc_gen = 0; // incremented on document open and book-mode toggle
 
 typedef struct {
   fz_pixmap *pix;
@@ -351,14 +358,22 @@ typedef struct {
 #define SLOT_CUR 2
 static PageSlot slots[NSLOTS];
 
-static fz_pixmap *do_render(fz_context *rctx, int page_num, float z) {
+static fz_pixmap *do_render(fz_context *rctx, int page_num, float z,
+                            bool book) {
   fz_pixmap *pix = NULL;
   fz_page *p = NULL;
   fz_try(rctx) {
     p = fz_load_page(rctx, doc, page_num);
     fz_rect b = fz_bound_page(rctx, p);
-    float pw = b.x1 - b.x0;
-    float fs = (pw > 0.f) ? (float)SCREEN_W / pw : 1.f;
+    float pw = b.x1 - b.x0, ph = b.y1 - b.y0;
+    float fs;
+    if (book) {
+      // Whole page fits the portrait book canvas; zoom does not apply.
+      fs = (pw > 0.f && ph > 0.f) ? fminf(BOOK_W / pw, BOOK_H / ph) : 1.f;
+      z = 1.f;
+    } else {
+      fs = (pw > 0.f) ? (float)SCREEN_W / pw : 1.f;
+    }
     fz_matrix m = fz_scale(fs * z, fs * z);
     pix = fz_new_pixmap_from_page(rctx, p, m, fz_device_rgb(rctx), 0);
   }
@@ -375,6 +390,7 @@ typedef struct {
   bool req_valid;
   int req_page;
   float req_zoom;
+  bool req_book;
   int req_slot;
   u32 req_gen;
   bool res_ready;
@@ -402,6 +418,7 @@ static void worker_func(void *arg) {
     bool valid = g_worker.req_valid;
     int page = g_worker.req_page;
     float z = g_worker.req_zoom;
+    bool book = g_worker.req_book;
     int slot = g_worker.req_slot;
     u32 gen = g_worker.req_gen;
     g_worker.req_valid = false;
@@ -410,7 +427,7 @@ static void worker_func(void *arg) {
       break;
     if (!valid)
       continue;
-    fz_pixmap *pix = do_render(g_wctx, page, z);
+    fz_pixmap *pix = do_render(g_wctx, page, z, book);
     LightLock_Lock(&g_worker.lock);
     if (g_worker.res_pix)
       fz_drop_pixmap(g_wctx, g_worker.res_pix);
@@ -435,6 +452,7 @@ static void worker_func(void *arg) {
 static int pq_slot[4];
 static int pq_page[4];
 static float pq_zoom[4];
+static bool pq_book[4];
 static u32 pq_gen[4];
 static int pq_count = 0;
 static bool pq_busy = false;
@@ -446,12 +464,14 @@ static void pq_dispatch(void) {
   int s = pq_slot[0];
   int pg = pq_page[0];
   float z = pq_zoom[0];
+  bool book = pq_book[0];
   u32 g = pq_gen[0];
   if (--pq_count) {
     for (int i = 0; i < pq_count; i++) {
       pq_slot[i] = pq_slot[i + 1];
       pq_page[i] = pq_page[i + 1];
       pq_zoom[i] = pq_zoom[i + 1];
+      pq_book[i] = pq_book[i + 1];
       pq_gen[i] = pq_gen[i + 1];
     }
   }
@@ -459,6 +479,7 @@ static void pq_dispatch(void) {
   g_worker.req_valid = true;
   g_worker.req_page = pg;
   g_worker.req_zoom = z;
+  g_worker.req_book = book;
   g_worker.req_slot = s;
   g_worker.req_gen = g;
   LightLock_Unlock(&g_worker.lock);
@@ -474,6 +495,7 @@ static void pq_enqueue(int slot, int page) {
     pq_slot[pq_count] = slot;
     pq_page[pq_count] = page;
     pq_zoom[pq_count] = zoom;
+    pq_book[pq_count] = book_mode;
     pq_gen[pq_count] = doc_gen;
     pq_count++;
   }
@@ -547,12 +569,14 @@ static void slot_render_sync(int i, int page_num) {
   if (page_num < 0 || page_num >= total_pages)
     return;
   slots[i].page_num = page_num;
-  slots[i].pix = do_render(ctx, page_num, zoom);
+  slots[i].pix = do_render(ctx, page_num, zoom, book_mode);
 }
 
 static void reload_all(void) {
   pq_cancel();
   slot_render_sync(SLOT_CUR, cur_page);
+  if (book_mode)
+    slot_render_sync(SLOT_CUR + 1, cur_page + 1); // shown on the bottom screen
   pq_enqueue(SLOT_CUR - 1, cur_page - 1);
   pq_enqueue(SLOT_CUR - 2, cur_page - 2);
   pq_enqueue(SLOT_CUR + 1, cur_page + 1);
@@ -615,12 +639,41 @@ static void blit(u8 *fb, int sw, int sh_content, fz_pixmap *pix, int vx,
     }
 }
 
+// Draw a page rotated 90 degrees clockwise, centred on a screen of width sw.
+// The page's top edge lands on the screen's right edge and its left edge on
+// the screen's top edge.
+static void blit_book(u8 *fb, int sw, fz_pixmap *pix) {
+  memset(fb, BOOK_BG, (u32)sw * SCREEN_H * 3);
+  if (!pix)
+    return;
+  int cols = pix->w < SCREEN_H ? pix->w : SCREEN_H;
+  int rows = pix->h < sw ? pix->h : sw;
+  int du = (SCREEN_H - cols) / 2, dv = (sw - rows) / 2;
+  for (int v = 0; v < rows; v++) {
+    const u8 *s = pix->samples + (size_t)v * pix->stride;
+    // Framebuffer column x = sw-1-(dv+v); row y = du+u maps to SCREEN_H-1-y.
+    u8 *d = fb + ((u32)(sw - 1 - (dv + v)) * SCREEN_H + (SCREEN_H - 1 - du)) * 3;
+    for (int u = 0; u < cols; u++, s += pix->n, d -= 3) {
+      d[0] = s[2];
+      d[1] = s[1];
+      d[2] = s[0];
+    }
+  }
+}
+
 static void refresh(void) {
   fz_pixmap *pix = slots[SLOT_CUR].pix;
   for (int i = 0; i < 2; i++) {
     gspWaitForVBlank();
     u8 *top = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
     u8 *bot = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
+    if (book_mode) {
+      blit_book(top, SCREEN_W, pix);
+      blit_book(bot, BSCREEN_W, slots[SLOT_CUR + 1].pix);
+      gfxFlushBuffers();
+      gfxSwapBuffers();
+      continue;
+    }
     blit(top, SCREEN_W, SCREEN_H, pix, pan_x, pan_y);
     memset(bot, 0x1A, (u32)BSCREEN_W * SCREEN_H * 3);
     draw_dashboard(bot, cur_page + 1, total_pages, zoom);
@@ -674,6 +727,25 @@ static void nav_prev(void) {
   if (!slots[SLOT_CUR].pix)
     slot_render_sync(SLOT_CUR, cur_page);
   pq_enqueue(0, cur_page - SLOT_CUR);
+}
+
+// Book mode turns two pages at a time; the bottom page must be ready to show.
+static void book_next(void) {
+  if (cur_page + 2 >= total_pages)
+    return;
+  nav_next();
+  nav_next();
+  if (!slots[SLOT_CUR + 1].pix)
+    slot_render_sync(SLOT_CUR + 1, cur_page + 1);
+}
+
+static void book_prev(void) {
+  if (cur_page <= 0)
+    return;
+  nav_prev();
+  nav_prev();
+  if (!slots[SLOT_CUR + 1].pix)
+    slot_render_sync(SLOT_CUR + 1, cur_page + 1);
 }
 
 // home screen
@@ -923,6 +995,26 @@ int main(int argc, char *argv[]) {
         goto reader_done;
       }
 
+      if (kDown & KEY_SELECT) {
+        book_mode = !book_mode;
+        zoom_mode = false;
+        touch_held = false;
+        pan_x = pan_y = 0;
+        doc_gen++; // discard renders made for the other mode
+        reload_all();
+        dirty = true;
+      }
+
+      if (book_mode) {
+        if (kDown & (KEY_R | KEY_TOUCH | KEY_DDOWN))
+          book_next();
+        if (kDown & (KEY_L | KEY_DUP))
+          book_prev();
+        if (kDown & (KEY_R | KEY_L | KEY_TOUCH | KEY_DDOWN | KEY_DUP))
+          dirty = true;
+        goto reader_present;
+      }
+
       // Zoom mode toggle
       if (kDown & KEY_Y)
         zoom_mode = !zoom_mode;
@@ -1083,6 +1175,7 @@ int main(int argc, char *argv[]) {
         }
       }
 
+    reader_present:
       // Save cur_page to entry continuously
       if (g_active_idx >= 0)
         g_ent[g_active_idx].cur_page = cur_page;
