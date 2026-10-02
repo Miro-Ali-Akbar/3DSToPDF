@@ -733,9 +733,54 @@ static void close_pdf(void) {
 
 // drawing: library
 
-// File name without its ".pdf" extension, for display.
+// Map a Unicode code point to the CP437 console font. Latin-1 letters the
+// font lacks fall back to their unaccented form; anything else becomes '?'.
+static u8 to_cp437(u32 cp) {
+  static const char latin1_base[] =
+      "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYPsaaaaaaaceeeeiiiidnooooo/ouuuuypy";
+  static const struct {
+    u16 cp;
+    u8 g;
+  } map[] = {
+      {0xA0, 0xFF}, {0xA1, 0xAD}, {0xA2, 0x9B}, {0xA3, 0x9C}, {0xA5, 0x9D},
+      {0xAA, 0xA6}, {0xAB, 0xAE}, {0xAC, 0xAA}, {0xB0, 0xF8}, {0xB1, 0xF1},
+      {0xB2, 0xFD}, {0xB5, 0xE6}, {0xB7, 0xFA}, {0xBA, 0xA7}, {0xBB, 0xAF},
+      {0xBC, 0xAC}, {0xBD, 0xAB}, {0xBF, 0xA8}, {0xC4, 0x8E}, {0xC5, 0x8F},
+      {0xC6, 0x92}, {0xC7, 0x80}, {0xC9, 0x90}, {0xD1, 0xA5}, {0xD6, 0x99},
+      {0xDC, 0x9A}, {0xDF, 0xE1}, {0xE0, 0x85}, {0xE1, 0xA0}, {0xE2, 0x83},
+      {0xE4, 0x84}, {0xE5, 0x86}, {0xE6, 0x91}, {0xE7, 0x87}, {0xE8, 0x8A},
+      {0xE9, 0x82}, {0xEA, 0x88}, {0xEB, 0x89}, {0xEC, 0x8D}, {0xED, 0xA1},
+      {0xEE, 0x8C}, {0xEF, 0x8B}, {0xF1, 0xA4}, {0xF2, 0x95}, {0xF3, 0xA2},
+      {0xF4, 0x93}, {0xF6, 0x94}, {0xF7, 0xF6}, {0xF9, 0x97}, {0xFA, 0xA3},
+      {0xFB, 0x96}, {0xFC, 0x81}, {0xFF, 0x98},
+  };
+  if (cp >= 0x20 && cp < 0x7F)
+    return cp;
+  for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++)
+    if (map[i].cp == cp)
+      return map[i].g;
+  if (cp >= 0xC0 && cp <= 0xFF)
+    return latin1_base[cp - 0xC0];
+  return '?';
+}
+
+// File name without its ".pdf" extension, decoded from UTF-8 into the
+// one-byte-per-glyph encoding the drawing code uses.
 static void display_name(char *out, size_t out_sz, const PDFEntry *e) {
-  snprintf(out, out_sz, "%.*s", (int)strlen(e->name) - 4, e->name);
+  const u8 *s = (const u8 *)e->name, *end = s + strlen(e->name) - 4;
+  size_t n = 0;
+  while (s < end && n + 1 < out_sz) {
+    u32 cp = *s++;
+    int extra = cp >= 0xF0 ? 3 : cp >= 0xE0 ? 2 : cp >= 0xC0 ? 1 : 0;
+    if (extra)
+      cp &= 0x3F >> extra;
+    for (; extra > 0 && s < end && (*s & 0xC0) == 0x80; extra--)
+      cp = (cp << 6) | (*s++ & 0x3F);
+    if (cp >= 0x300 && cp < 0x370)
+      continue; // combining accent: keep just the base letter
+    out[n++] = to_cp437(cp);
+  }
+  out[n] = '\0';
 }
 
 static float entry_progress(const PDFEntry *e) {
